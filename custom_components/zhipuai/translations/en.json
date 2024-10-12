@@ -1,0 +1,51 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "api_key": "API Key"
+        },
+        "description": "Get the key: [Click here](https://open.bigmodel.cn/console/modelft/dataset)"
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the service",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unknown error"
+    },
+    "abort": {
+      "single_instance_allowed": "Already configured. Only one configuration entry is allowed."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "prompt": "Instruction",
+          "chat_model": "Chat Model",
+          "max_tokens": "Maximum number of tokens in the response",
+          "temperature": "Temperature",
+          "top_p": "Top P",
+          "llm_hass_api": "Options",
+          "recommended": "Recommended model settings",
+          "max_history_messages": "Maximum number of history messages"
+        },
+        "data_description": {
+          "prompt": "Instruct the LLM on how to respond. This can be a template.",
+          "chat_model": "Fill in the chat model to use",
+          "max_tokens": "Set the maximum number of tokens to return in the response",
+          "temperature": "Control the randomness of the output (0-2)",
+          "top_p": "Control the diversity of the output (0-1)",
+          "llm_hass_api": "Home Assistant LLM API",
+          "recommended": "Use recommended model settings",
+          "max_history_messages": "Set the maximum number of history messages to keep"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "invalid_config_entry": {
+      "message": "The provided configuration entry is invalid. Received {config_entry}"
+    }
+  }
+}
