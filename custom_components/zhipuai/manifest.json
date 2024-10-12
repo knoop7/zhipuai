@@ -1,0 +1,16 @@
+{
+  "domain": "zhipuai",
+  "name": "智谱清言",
+  "version": "2024.10.1",
+  "codeowners": ["@KNOOP7"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/knoop7/zhipuai",
+  "issue_tracker": "https://github.com/knoop7/zhipuai/issues",
+  "homekit": {},
+  "iot_class": "cloud_polling",
+  "requirements": ["aiohttp"],
+  "ssdp": [],
+  "zeroconf": [],
+  "manufacturer": "KNOOP7"
+}
