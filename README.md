@@ -1,4 +1,3 @@
-下面是经过进一步调整的版本，以确保所有标题清晰区分，同时让整体格式更加美观和正式：
 
 # 智谱清言 AI Home Assistant 🏡  
 ![GitHub Version](https://img.shields.io/github/v/release/knoop7/zhipuai) ![GitHub Issues](https://img.shields.io/github/issues/knoop7/zhipuai) ![GitHub Forks](https://img.shields.io/github/forks/knoop7/zhipuai?style=social) ![GitHub Stars](https://img.shields.io/github/stars/knoop7/zhipuai?style=social)
