@@ -5,7 +5,7 @@
 <img src="https://github.com/user-attachments/assets/f8ff7a6c-4449-496a-889a-d205469a84df" alt="image" width="700" height="400">
 
 ---
-## 通知：本项目未经允许严禁商用，你可以隐晦但不能作为盈利手段，禁止发布到小红书、BilBil，若有发现一律停止更新。
+## 通知：本项目未经允许严禁商用，你可以隐晦但不能作为盈利手段，未经允许禁止发布到小红书、BilBil，若有发现一律停止更新。
 
 ### 📦 安装步骤
 
