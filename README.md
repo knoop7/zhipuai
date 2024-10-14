@@ -39,12 +39,20 @@ https://github.com/knoop7/zhipuai
 
 
 ### 可用设备展示
-```csv
-entity_id,name,state,aliases
-{% for entity in exposed_entities -%}
-{{ entity.entity_id }},{{ entity.name }},{{ entity.state }},{{entity.aliases | join('/')}}
-{% endfor -%}
-```
+
+
+# 注意如果实体超过1000以上
+# 直接删掉这句话
+
+# ```csv
+# entity_id,name,state
+# {% for entity in states -%} 
+# {{ entity.entity_id }},{{ entity.name }},
+# {{ entity.state }},
+# {% endfor -%}
+#```  
+
+
 
 ### 服务执行指令示例
 ```json
