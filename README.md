@@ -183,6 +183,44 @@ Attributes:
 }
 ````
 
+或者这个模版指令
+````
+### 可用设备展示
+```csv
+entity_id,name,state,category
+{%- for entity in states if 'automation.' not in entity.entity_id and entity.state not in ['unknown'] and not ('device_tracker.' in entity.entity_id and ('huawei' in entity.entity_id or 'Samsung' in entity.entity_id)) and 'iphone' not in entity.entity_id and 'daily_english' not in entity.entity_id and 'lenovo' not in entity.entity_id and 'time' not in entity.entity_id and 'zone' not in entity.entity_id and 'n1' not in entity.entity_id and 'z470' not in entity.entity_id and 'lao_huang' not in entity.entity_id and 'lao_huang_li' not in entity.entity_id and 'input_text' not in entity.entity_id and 'conversation' not in entity.entity_id  and 'camera' not in entity.entity_id  and 'update' not in entity.entity_id and 'IPhone' not in entity.entity_id and 'mac' not in entity.entity_id and 'macmini' not in entity.entity_id and 'macbook' not in entity.entity_id and 'ups' not in entity.entity_id and 'OPENWRT' not in entity.entity_id  and 'OPENWRT' not in entity.entity_id%}
+{%- set category = '其他' %}
+{%- if 'light.' in entity.entity_id %}{% set category = '灯' %}
+{%- elif 'sensor.' in entity.entity_id and 'battery' in entity.entity_id %}
+    {% set category = '电池' %}
+{%- elif 'sensor.' in entity.entity_id and 'sun' in entity.entity_id %}
+    {% set category = '太阳' %}
+{%- elif 'sensor.' in entity.entity_id and ('motion' in entity.entity_id or 'presence' in entity.entity_id) %}
+    {% set category = '人体存在' %}
+{%- elif 'sensor.' in entity.entity_id and ('motion' in entity.entity_id or 'presence' in entity.entity_id) %}
+    {% set category = '人体存在' %}
+{%- elif 'climate.' in entity.entity_id %}{% set category = '空调' %}
+{%- elif 'media_player.' in entity.entity_id %}{% set category = '媒体播放器' %}
+{%- elif 'cover.' in entity.entity_id %}{% set category = '门窗' %}
+{%- elif 'lock.' in entity.entity_id %}{% set category = '门锁' %}
+{%- elif 'switch.' in entity.entity_id %}{% set category = '开关' %}
+{%- elif 'sensor.' in entity.entity_id %}{% set category = '传感器' %}
+{%- elif 'watering.' in entity.entity_id %}{% set category = '浇花器' %}
+{%- elif 'fan.' in entity.entity_id %}{% set category = '风扇' %}
+{%- elif 'air_quality.' in entity.entity_id %}{% set category = '空气质量' %}
+{%- elif 'vacuum.' in entity.entity_id %}{% set category = '扫地机器人' %}
+{%- elif 'person.' in entity.entity_id %}{% set category = '人员' %}
+{%- elif 'binary_sensor.' in entity.entity_id and ('door' in entity.entity_id or 'window' in entity.entity_id) %}{% set category = '门窗' %}
+{%- elif 'gas.' in entity.entity_id %}{% set category = '天然气' %}
+{%- elif 'energy.' in entity.entity_id %}{% set category = '用电量' %}
+{%- elif 'script.' in entity.entity_id %}{% set category = '脚本' %}
+{%- elif 'scene.' in entity.entity_id %}{% set category = '场景' %}
+{%- endif %}
+{{- entity.entity_id }},{{ entity.name }},{{ entity.state }},{{ category }}
+{%- endfor %}
+
+````
+
 ---
 
 ### 使用内置 API 公开实体 🌐  
