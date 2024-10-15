@@ -7,10 +7,7 @@
   "dependencies": [],
   "documentation": "https://github.com/knoop7/zhipuai",
   "issue_tracker": "https://github.com/knoop7/zhipuai/issues",
-  "homekit": {},
   "iot_class": "cloud_polling",
-  "requirements": ["aiohttp"],
-  "ssdp": [],
-  "zeroconf": [],
+  "requirements": ["aiohttp==3.8.1"],
   "manufacturer": "KNOOP7"
 }
