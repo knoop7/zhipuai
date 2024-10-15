@@ -2,12 +2,10 @@
   "domain": "zhipuai",
   "name": "智谱清言",
   "version": "2024.10.14",
-  "codeowners": ["@KNOOP7"],
+  "codeowners": ["@knoop7"],
   "config_flow": true,
-  "dependencies": [],
   "documentation": "https://github.com/knoop7/zhipuai",
   "issue_tracker": "https://github.com/knoop7/zhipuai/issues",
   "iot_class": "cloud_polling",
-  "requirements": ["aiohttp==3.8.1"],
-  "manufacturer": "KNOOP7"
+  "requirements": ["aiohttp>=3.8.1,<4.0.0"]
 }
