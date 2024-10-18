@@ -7,6 +7,6 @@
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/knoop7/zhipuai/issues",
-  "requirements": ["aiohttp"],
+  "requirements": [],
   "version": "2024.10.14"
 }
