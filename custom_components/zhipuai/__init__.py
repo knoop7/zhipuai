@@ -5,11 +5,11 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from .const import DOMAIN, LOGGER
+from .service_caller import get_service_caller
 
 PLATFORMS: list[Platform] = [Platform.CONVERSATION]
 
 class ZhipuAIConfigEntry:
-
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry):
         self.hass = hass
         self.config_entry = config_entry
@@ -17,6 +17,7 @@ class ZhipuAIConfigEntry:
         self.options = config_entry.options
         self._unsub_options_update_listener = None
         self._cleanup_callbacks = []
+        self.service_caller = get_service_caller(hass)
 
     @property
     def entry_id(self):
@@ -35,7 +36,6 @@ class ZhipuAIConfigEntry:
         if self._unsub_options_update_listener is not None:
             self._unsub_options_update_listener()
             self._unsub_options_update_listener = None
-        # Call all cleanup callbacks
         for cleanup_callback in self._cleanup_callbacks:
             cleanup_callback()
         self._cleanup_callbacks.clear()
