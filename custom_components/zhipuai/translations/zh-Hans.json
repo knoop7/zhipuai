@@ -1,0 +1,59 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "name": "自定义名称",
+          "api_key": "API 密钥"
+        },
+        "description": "获取密钥：[点击链接](https://open.bigmodel.cn/console/modelft/dataset)"
+      }
+    },
+    "error": {
+      "cannot_connect": "无法连接到服务",
+      "invalid_auth": "验证无效",
+      "unknown": "已保存配置，无需二次",
+      "cooldown_too_small": "冷却时间值 {value} 太小，请设置大于等于 0 的值！",
+      "cooldown_too_large": "冷却时间值 {value} 太大，请设置小于等于 10 的值！",
+      "invalid_option": "无效的选项值"
+    },
+    "abort": {
+      "single_instance_allowed": "已经配置，只允许一个配置条目。"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "prompt": "指令",
+          "chat_model": "聊天模型",
+          "max_tokens": "响应中返回的最大令牌数",
+          "temperature": "温度",
+          "top_p": "Top P",
+          "llm_hass_api": "选项",
+          "recommended": "推荐的模型设置",
+          "max_history_messages": "最大历史消息数",
+          "max_tool_iterations": "最大工具调用次数",
+          "cooldown_period": "冷却时间（秒）"
+        },
+        "data_description": {
+          "prompt": "指示 LLM 应如何响应。这可以是一个模板。",
+          "chat_model": "请选择要使用的聊天模型 (首选默认已选择免费通用128K模型，若有富哥需求更好的体验可以选择支持其余付费模型，实际费用并不高，具体请查询官方网页计费标准）",
+          "max_tokens": "设置响应中返回的最大令牌数",
+          "temperature": "控制输出的随机性（0-2）",
+          "top_p": "控制输出的多样性（0-1）",
+          "llm_hass_api": "Home Assistant LLM API",
+          "recommended": "使用推荐的模型设置",
+          "max_history_messages": "设置要保留的最大历史消息数，作用：控制输入内容的记忆功能，记忆功能可以保证上下文的流畅对话。通常控制家庭设备在5次内最好，有效针对于无法顺利请求。其他日常对话可以设置阀值10次以上。",
+          "max_tool_iterations": "设置单次对话中最大的工具调用次数，作用：针对于系统LLM的调用请求的调用阀值，若有错误可以保证系统不被卡死，特别针对于各类性能偏弱的小主机的设计，建议设置20-30次。",
+          "cooldown_period": "设置两次对话请求之间的最小间隔时间（0-10秒）作用：请求会延迟等待一段时间再发送，建议设置3秒内。保证因为速率的因素所导致内容的发送请求失败。"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "invalid_config_entry": {
+      "message": "提供的配置条目无效。得到的是 {config_entry}"
+    }
+  }
+}
