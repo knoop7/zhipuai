@@ -21,3 +21,5 @@ CONF_MAX_TOOL_ITERATIONS = "max_tool_iterations"
 DEFAULT_MAX_TOOL_ITERATIONS = 20
 CONF_COOLDOWN_PERIOD = "cooldown_period"
 DEFAULT_COOLDOWN_PERIOD = 3
+
+ZHIPUAI_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
