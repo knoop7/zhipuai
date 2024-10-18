@@ -53,72 +53,11 @@ https://github.com/knoop7/zhipuai
 #```  
 
 
-
-### 服务执行指令示例
-```json
-{
-  "list": [
-    {
-      "domain": "light", 
-      "service": "turn_on", 
-      "service_data": {
-        "entity_id": "light.living_room"
-      }
-    },
-    {
-      "domain": "switch", 
-      "service": "turn_off", 
-      "service_data": {
-        "entity_id": "switch.kitchen_light"
-      }
-    },
-    {
-      "domain": "climate", 
-      "service": "set_temperature", 
-      "service_data": {
-        "entity_id": "climate.bedroom",
-        "temperature": 22
-      }
-    },
-    {
-      "domain": "media_player", 
-      "service": "media_play", 
-      "service_data": {
-        "entity_id": "media_player.tv"
-      }
-    }
-  ]
-}
-```
-
 ### 逻辑修复和执行约束
 1. **状态检查**：确保设备状态有变化时才执行命令，避免重复操作。
 2. **过滤不必要的命令**：`HassTurnOff`、`HassTurnOn`等冗余命令不再生成，直接使用 `execute_services` 函数。
 3. **简化用户操作**：在响应中只返回必要信息，减少多余内容。
 
-### 示例指令
-
-1. **将客厅灯打开**
-   ```json
-   {
-     "domain": "light",
-     "service": "turn_on",
-     "service_data": {
-       "entity_id": "light.living_room"
-     }
-   }
-   ```
-
-2. **将厨房开关关闭**
-   ```json
-   {
-     "domain": "switch",
-     "service": "turn_off",
-     "service_data": {
-       "entity_id": "switch.kitchen_light"
-     }
-   }
-   ```
 
 ### 检查避免重复执行
 在执行服务时先检查当前状态，确保设备在目标状态时不会重复执行。例如：
@@ -132,6 +71,7 @@ https://github.com/knoop7/zhipuai
   }
 }
 {% endif %}
+
 ```
 
 ### 今日油价：
