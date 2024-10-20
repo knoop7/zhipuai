@@ -1,5 +1,4 @@
-##### 当前可能不可用状态居多，还在优化中
-
+# 依旧优化中，精简大量错误
 
 from typing import Dict, List, Union, Set, Any, Optional
 from homeassistant.core import HomeAssistant
@@ -17,52 +16,46 @@ class ServiceCaller:
 
     async def call_service(self, domain: str, service: str, data: Dict[str, Any]) -> Dict[str, Any]:
         try:
-            await self.hass.services.async_call(domain, service, data)
+            await self.hass.services.async_call(domain, service, data, blocking=True)
             LOGGER.info(f"成功调用服务 {domain}.{service}")
             return {"success": True, "message": f"成功调用服务 {domain}.{service}", "data": data}
         except Exception as e:
             LOGGER.error(f"调用服务 {domain}.{service} 时出错：{str(e)}")
-            return {"success": False, "error": str(e), "data": data}
+            return {"success": False, "message": str(e), "data": data}
 
-    async def handle_service_call(self, tool_input: Union[intent.IntentResponse, Any]) -> Dict[str, Any]:
-        if isinstance(tool_input, intent.IntentResponse):
-            domain = tool_input.intent.intent_type.split('.')[0]
-            action = tool_input.intent.intent_type.split('.')[-1]
-            name = tool_input.slots.get('name', {}).get('value')
-            area = tool_input.slots.get('area', {}).get('value')
-            data = {k: v['value'] for k, v in tool_input.slots.items() if k not in ['name', 'area']}
-        else:  
-            domain = tool_input.tool_args.get('domain', 'light')
-            action = tool_input.tool_args.get('action', 'turn_on')
-            name = tool_input.tool_args.get('name')
-            area = tool_input.tool_args.get('area')
-            data = {k: v for k, v in tool_input.tool_args.items() if k not in ['domain', 'action', 'name', 'area']}
+    async def handle_service_call(self, service_info: Dict[str, Any]) -> Dict[str, Any]:
+        domain = service_info.get('domain')
+        action = service_info.get('action')
+        name = service_info.get('name')
+        area = service_info.get('area')
+        data = service_info.get('data', {})
 
-        LOGGER.debug(f"Handling service call: domain={domain}, action={action}, name={name}, area={area}, data={data}")
+        LOGGER.debug(f"处理服务调用: domain={domain}, action={action}, name={name}, area={area}, data={data}")
 
         handlers = {
-            "light": (self.handle_light_intent, ["灯", "照明", "光"]),
-            "water_heater": (self.handle_water_heater_intent, ["热水器", "水温", "温度"]),
-            "fan": (self.handle_fan_intent, ["风扇", "电扇", "空气循环"]),
-            "cover": (self.handle_cover_intent, ["窗帘", "百叶窗", "卷帘"]),
-            "lock": (self.handle_lock_intent, ["锁", "门锁", "智能锁"]),
-            "climate": (self.handle_climate_intent, ["空调", "暖气", "温控"]),
-            "media_player": (self.handle_media_player_intent, ["音响", "电视", "播放器"])
+            "light": self.handle_light_intent,
+            "water_heater": self.handle_water_heater_intent,
+            "fan": self.handle_fan_intent,
+            "cover": self.handle_cover_intent,
+            "lock": self.handle_lock_intent,
+            "climate": self.handle_climate_intent,
+            "media_player": self.handle_media_player_intent,
+            "switch": self.handle_switch_intent,
+            "input_select": self.handle_input_select_intent,
+            "scene": self.handle_scene_intent,
+            "script": self.handle_script_intent,
+            "camera": self.handle_camera_intent,
+            "notify": self.handle_notify_intent,
+            "automation": self.handle_automation_intent
         }
 
-        for handler_domain, (handler, keywords) in handlers.items():
-            if domain == handler_domain or (name and any(keyword in name for keyword in keywords)):
-                return await handler(action, name, area, data)
-
-        if domain == "homeassistant" and action == "restart":
-            return await self.restart_hass(data)
-
-        return await self.handle_generic_intent(domain, action, name, area, data)
+        handler = handlers.get(domain, self.handle_generic_intent)
+        return await handler(action, name, area, data)
 
     async def handle_fan_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
         fan_entities = await self._get_entities("fan", name, area)
         if not fan_entities:
-            return {"success": False, "error": f"未找到匹配的风扇"}
+            return {"success": False, "message": f"未找到匹配的风扇"}
 
         results = []
         for entity_id in fan_entities:
@@ -81,13 +74,13 @@ class ServiceCaller:
             results.append(result)
 
         if not results:
-            return {"success": False, "error": f"没有成功执行的风扇操作"}
+            return {"success": False, "message": f"没有成功执行的风扇操作"}
         return {"success": True, "message": f"执行了 {len(results)} 个风扇操作", "details": results}
 
     async def handle_light_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
         light_entities = await self._get_entities("light", name, area)
         if not light_entities:
-            return {"success": False, "error": f"未找到匹配的灯光"}
+            return {"success": False, "message": f"未找到匹配的灯光"}
 
         results = []
         for entity_id in light_entities:
@@ -104,7 +97,7 @@ class ServiceCaller:
             results.append(result)
 
         if not results:
-            return {"success": False, "error": f"没有成功执行的灯光操作"}
+            return {"success": False, "message": f"没有成功执行的灯光操作"}
         return {"success": True, "message": f"执行了 {len(results)} 个灯光操作", "details": results}
 
     async def handle_water_heater_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -114,7 +107,7 @@ class ServiceCaller:
         
         if not self.hass.states.get(water_heater_entity):
             LOGGER.error(f"未找到热水器温度设置实体: {water_heater_entity}")
-            return {"success": False, "error": f"未找到热水器温度设置实体: {water_heater_entity}"}
+            return {"success": False, "message": f"未找到热水器温度设置实体: {water_heater_entity}"}
 
         if action in ["set_temperature", "设置温度"]:
             service = "set_value"
@@ -128,7 +121,7 @@ class ServiceCaller:
                     service_data["value"] = temperature
                 except ValueError:
                     LOGGER.error("无法从动作中提取温度值")
-                    return {"success": False, "error": "设置温度时需要提供温度值"}
+                    return {"success": False, "message": "设置温度时需要提供温度值"}
             
             LOGGER.info(f"正在设置热水器温度为 {service_data['value']}°C")
             result = await self.call_service("number", service, service_data)
@@ -136,60 +129,89 @@ class ServiceCaller:
             if result["success"]:
                 return {"success": True, "message": f"成功将热水器温度设置为 {service_data['value']}°C", "details": result}
             else:
-                return {"success": False, "error": f"设置热水器温度失败: {result['error']}", "details": result}
+                return {"success": False, "message": f"设置热水器温度失败: {result['message']}", "details": result}
         else:
             LOGGER.warning(f"不支持的热水器操作: {action}")
-            return {"success": False, "error": f"不支持的热水器操作: {action}"}
+            return {"success": False, "message": f"不支持的热水器操作: {action}"}
 
     async def handle_cover_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        cover_entities = await self._get_entities("cover", name, area, 
-        device_classes={"shutter", "blind", "curtain", "awning", "window", "shade"})
+        VALID_DEVICE_CLASSES = {
+            "awning", "blind", "curtain", "damper", "door", "garage", "gate", 
+            "shade", "shutter", "window"
+        }
+        
+        cover_entities = await self._get_entities("cover", name, area)
         if not cover_entities:
-            return {"success": False, "error": f"未找到匹配的窗帘"}
+            return {"success": False, "message": f"未找到匹配的窗帘或门"}
 
         results = []
         for entity_id in cover_entities:
             service_data = {"entity_id": entity_id}
+            
+            state = self.hass.states.get(entity_id)
+            device_class = state.attributes.get("device_class") if state else None
+
             if action in ["open", "close", "stop"]:
-                service = f"{action}_cover"
+                service = action
             elif action == "set_position":
                 service = "set_cover_position"
-                service_data["position"] = data.get("position")
+                if "position" in data:
+                    service_data["position"] = data["position"]
+                else:
+                    LOGGER.warning(f"设置位置时需要提供 'position' 参数")
+                    continue
             else:
-                LOGGER.warning(f"不支持的窗帘操作: {action}")
+                LOGGER.warning(f"不支持的操作: {action}")
                 continue
             
-            service_data.update(data)
+            if "device_class" in data:
+                if data["device_class"] in VALID_DEVICE_CLASSES:
+                    service_data["device_class"] = data["device_class"]
+                else:
+                    LOGGER.warning(f"无效的 device_class: {data['device_class']}. 使用默认值。")
+
+            elif device_class:
+                service_data["device_class"] = device_class
+            
             result = await self.call_service("cover", service, service_data)
             results.append(result)
 
         if not results:
-            return {"success": False, "error": f"没有成功执行的窗帘操作"}
-        return {"success": True, "message": f"执行了 {len(results)} 个窗帘操作", "details": results}
+            return {"success": False, "message": f"没有成功执行的操作"}
+        return {"success": True, "message": f"执行了 {len(results)} 个操作", "details": results}
 
     async def handle_lock_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        lock_entities = await self._get_entities("lock", name, area)
-        if not lock_entities:
-            return {"success": False, "error": f"未找到匹配的门锁"}
+        try:
+            if name is not None and not isinstance(name, str):
+                name = str(name)
 
-        results = []
-        for entity_id in lock_entities:
-            if action in ["lock", "unlock"]:
-                service_data = {"entity_id": entity_id}
-                service_data.update(data)
-                result = await self.call_service("lock", action, service_data)
-                results.append(result)
-            else:
-                LOGGER.warning(f"不支持的门锁操作: {action}")
+            lock_entities = await self._get_entities("lock", name, area)
+            if not lock_entities:
+                return {"success": False, "message": f"未找到匹配的门锁"}
 
-        if not results:
-            return {"success": False, "error": f"没有成功执行的门锁操作"}
+            results = []
+            for entity_id in lock_entities:
+                if action in ["lock", "unlock"]:
+                    service_data = {"entity_id": entity_id}
+                    service_data.update(data)
+                    result = await self.call_service("lock", action, service_data)
+                    results.append(result)
+                else:
+                    LOGGER.warning(f"不支持的门锁操作: {action}")
+
+            if not results:
+                return {"success": False, "message": f"没有成功执行的门锁操作"}
+            return {"success": True, "message": f"执行了 {len(results)} 个门锁操作", "details": results}
+
+        except Exception as e:
+            LOGGER.error(f"处理锁设备时发生错误: {str(e)}")
+            return {"success": False, "message": f"处理锁设备时发生错误: {str(e)}"}
         return {"success": True, "message": f"执行了 {len(results)} 个门锁操作", "details": results}
 
     async def handle_climate_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
         climate_entities = await self._get_entities("climate", name, area)
         if not climate_entities:
-            return {"success": False, "error": f"未找到匹配的空调或温控设备"}
+            return {"success": False, "message": f"未找到匹配的空调或温控设备"}
 
         results = []
         for entity_id in climate_entities:
@@ -219,13 +241,13 @@ class ServiceCaller:
             results.append(result)
 
         if not results:
-            return {"success": False, "error": f"没有成功执行的空调操作"}
+            return {"success": False, "message": f"没有成功执行的空调操作"}
         return {"success": True, "message": f"执行了 {len(results)} 个空调操作", "details": results}
 
     async def handle_media_player_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
         media_player_entities = await self._get_entities("media_player", name, area)
         if not media_player_entities:
-            return {"success": False, "error": f"未找到匹配的媒体播放器"}
+            return {"success": False, "message": f"未找到匹配的媒体播放器"}
 
         results = []
         for entity_id in media_player_entities:
@@ -248,7 +270,7 @@ class ServiceCaller:
             results.append(result)
 
         if not results:
-            return {"success": False, "error": f"没有成功执行的媒体播放器操作"}
+            return {"success": False, "message": f"没有成功执行的媒体播放器操作"}
         return {"success": True, "message": f"执行了 {len(results)} 个媒体播放器操作", "details": results}
 
     async def restart_hass(self, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -257,12 +279,12 @@ class ServiceCaller:
             return {"success": True, "message": "Home Assistant 正在重启"}
         except Exception as e:
             LOGGER.error(f"重启 Home Assistant 时出错：{str(e)}")
-            return {"success": False, "error": f"重启 Home Assistant 失败：{str(e)}"}
+            return {"success": False, "message": f"重启 Home Assistant 失败：{str(e)}"}
 
     async def handle_generic_intent(self, domain: str, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
         entities = await self._get_entities(domain, name, area)
         if not entities:
-            return {"success": False, "error": f"未找到匹配的 {domain} 实体"}
+            return {"success": False, "message": f"未找到匹配的 {domain} 实体"}
 
         results = []
         for entity_id in entities:
@@ -271,7 +293,7 @@ class ServiceCaller:
             results.append(result)
 
         if not results:
-            return {"success": False, "error": f"没有成功执行的 {domain} 操作"}
+            return {"success": False, "message": f"没有成功执行的 {domain} 操作"}
         return {"success": True, "message": f"执行了 {len(results)} 个 {domain} 操作", "details": results}
 
     async def _get_entities(self, domain: str, name: Optional[str] = None, area: Optional[str] = None, device_classes: Optional[Set[str]] = None) -> List[str]:
@@ -292,12 +314,8 @@ class ServiceCaller:
                 continue
 
             if area:
-                entity_entry = self.entity_reg.async_get(entity_id)
-                if entity_entry and entity_entry.area_id:
-                    area_entry = self.area_reg.async_get_area(entity_entry.area_id)
-                    if area_entry and area.lower() not in area_entry.name.lower():
-                        continue
-                else:
+                entity_area = self._get_entity_area(entity_id)
+                if not entity_area or area.lower() not in entity_area.lower():
                     continue
 
             matched_entities.append(entity_id)
@@ -305,17 +323,25 @@ class ServiceCaller:
         LOGGER.debug(f"Found entities for domain {domain}: {matched_entities}")
         return matched_entities
 
+    def _get_entity_area(self, entity_id: str) -> Optional[str]:
+        entity_reg = self.entity_reg.async_get(entity_id)
+        if entity_reg and entity_reg.area_id:
+            area = self.area_reg.async_get_area(entity_reg.area_id)
+            return area.name if area else None
+        return None
+
+
     def _process_light_attributes(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        processed_data = {}
-        if "color" in data:
-            rgb_color = self._convert_color_to_rgb(data["color"])
-            if rgb_color:
-                processed_data["rgb_color"] = rgb_color
-        if "brightness" in data:
-            processed_data["brightness"] = int(data["brightness"])
-        if "color_temp" in data:
-            processed_data["color_temp"] = self._convert_color_temp(data["color_temp"])
-        return processed_data
+            processed_data = {}
+            if "color" in data:
+                rgb_color = self._convert_color_to_rgb(data["color"])
+                if rgb_color:
+                    processed_data["rgb_color"] = rgb_color
+            if "brightness" in data:
+                processed_data["brightness"] = int(data["brightness"])
+            if "color_temp" in data:
+                processed_data["color_temp"] = self._convert_color_temp(data["color_temp"])
+            return processed_data
 
     def _convert_color_to_rgb(self, color: Union[str, List[int], color_util.RGBColor]) -> Optional[str]:
         if isinstance(color, color_util.RGBColor):
@@ -341,6 +367,128 @@ class ServiceCaller:
             LOGGER.error(f"无效的色温值: {color_temp}")
             return None
 
+    async def handle_switch_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        switch_entities = await self._get_entities("switch", name, area)
+        if not switch_entities:
+            return {"success": False, "message": f"未找到匹配的开关"}
+
+        results = []
+        for entity_id in switch_entities:
+            if action in ["turn_on", "turn_off"]:
+                service_data = {"entity_id": entity_id}
+                result = await self.call_service("switch", action, service_data)
+                results.append(result)
+            else:
+                LOGGER.warning(f"不支持的开关操作: {action}")
+
+        if not results:
+            return {"success": False, "message": f"没有成功执行的开关操作"}
+        return {"success": True, "message": f"执行了 {len(results)} 个开关操作", "details": results}
+
+    async def handle_input_select_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        input_select_entities = await self._get_entities("input_select", name, area)
+        if not input_select_entities:
+            return {"success": False, "message": f"未找到匹配的输入选择器"}
+
+        results = []
+        for entity_id in input_select_entities:
+            if action == "select_option":
+                service_data = {"entity_id": entity_id, "option": data.get("option")}
+                result = await self.call_service("input_select", "select_option", service_data)
+                results.append(result)
+            else:
+                LOGGER.warning(f"不支持的输入选择器操作: {action}")
+
+        if not results:
+            return {"success": False, "message": f"没有成功执行的输入选择器操作"}
+        return {"success": True, "message": f"执行了 {len(results)} 个输入选择器操作", "details": results}
+
+    async def handle_scene_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        scene_entities = await self._get_entities("scene", name, area)
+        if not scene_entities:
+            return {"success": False, "message": f"未找到匹配的场景"}
+
+        results = []
+        for entity_id in scene_entities:
+            if action == "activate":
+                service_data = {"entity_id": entity_id}
+                result = await self.call_service("scene", "turn_on", service_data)
+                results.append(result)
+            else:
+                LOGGER.warning(f"不支持的场景操作: {action}")
+
+        if not results:
+            return {"success": False, "message": f"没有成功执行的场景操作"}
+        return {"success": True, "message": f"执行了 {len(results)} 个场景操作", "details": results}
+
+    async def handle_script_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        script_entities = await self._get_entities("script", name, area)
+        if not script_entities:
+            return {"success": False, "message": f"未找到匹配的脚本"}
+
+        results = []
+        for entity_id in script_entities:
+            if action == "run":
+                service_data = {"entity_id": entity_id}
+                result = await self.call_service("script", "turn_on", service_data)
+                results.append(result)
+            else:
+                LOGGER.warning(f"不支持的脚本操作: {action}")
+
+        if not results:
+            return {"success": False, "message": f"没有成功执行的脚本操作"}
+        return {"success": True, "message": f"执行了 {len(results)} 个脚本操作", "details": results}
+
+    async def handle_camera_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        camera_entities = await self._get_entities("camera", name, area)
+        if not camera_entities:
+            return {"success": False, "message": f"未找到匹配的相机"}
+
+        results = []
+        for entity_id in camera_entities:
+            if action == "snapshot":
+                filename = data.get('filename', f"snapshot_{int(time.time())}.jpg")
+                service_data = {"entity_id": entity_id, "filename": filename}
+                result = await self.call_service("camera", "snapshot", service_data)
+                results.append(result)
+            else:
+                LOGGER.warning(f"不支持的相机操作: {action}")
+
+        if not results:
+            return {"success": False, "message": f"没有成功执行的相机操作"}
+        return {"success": True, "message": f"执行了 {len(results)} 个相机操作", "details": results}
+
+    async def handle_notify_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        message = data.get('message', '')
+        title = data.get('title', 'Home Assistant 通知')
+        if not message:
+            return {"success": False, "message": "未提供通知消息"}
+
+        try:
+            await self.call_service("notify", "notify", {"message": message, "title": title})
+            return {"success": True, "message": f"成功发送通知: {title} - {message}"}
+        except Exception as e:
+            LOGGER.error(f"发送通知时出错: {str(e)}")
+            return {"success": False, "message": str(e)}
+
+    async def handle_automation_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        automation_entities = await self._get_entities("automation", name, area)
+        if not automation_entities:
+            return {"success": False, "message": f"未找到匹配的自动化"}
+
+        results = []
+        for entity_id in automation_entities:
+            if action in ["turn_on", "turn_off", "trigger"]:
+                service_data = {"entity_id": entity_id}
+                result = await self.call_service("automation", action, service_data)
+                results.append(result)
+            else:
+                LOGGER.warning(f"不支持的自动化操作: {action}")
+
+        if not results:
+            return {"success": False, "message": f"没有成功执行的自动化操作"}
+        return {"success": True, "message": f"执行了 {len(results)} 个自动化操作", "details": results}
+
     async def get_available_services(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
         services = {}
         for domain in self.hass.services.async_services():
@@ -353,6 +501,9 @@ class ServiceCaller:
                 }
             services[domain] = domain_services
         return services
+
+
+
 
 def get_service_caller(hass: HomeAssistant) -> ServiceCaller:
     return ServiceCaller(hass)
