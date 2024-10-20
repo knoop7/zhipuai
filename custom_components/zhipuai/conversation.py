@@ -3,7 +3,7 @@ import asyncio
 import time
 import re
 from datetime import datetime
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, Awaitable
 from voluptuous_openapi import convert
 import voluptuous as vol
 from homeassistant.components import assist_pipeline, conversation
@@ -15,7 +15,6 @@ from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import device_registry as dr, intent, llm, template, entity_registry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.util.color import RGBColor
 from .ai_request import send_ai_request
 from homeassistant.util import ulid
 from .const import (
@@ -79,6 +78,22 @@ def feature_check(feature_name):
         return wrapper
     return decorator
 
+def is_service_call(user_input: str) -> bool:
+    patterns = [
+        r"调用服务\s+(.+)",
+        r"执行服务\s+(.+)",
+        r"使用服务\s+(.+)"
+    ]
+    return any(re.search(pattern, user_input) for pattern in patterns)
+
+def extract_service_info(user_input: str):
+    match = re.search(r"(调用|执行|使用)服务\s+(\w+)\.(\w+)(?:\s+(.+))?", user_input)
+    if match:
+        domain, service = match.group(2), match.group(3)
+        params = match.group(4) if match.group(4) else ""
+        return {"domain": domain, "service": service, "params": params}
+    return None
+
 class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.AbstractConversationAgent):
     _attr_has_entity_name = True
     _attr_name = None
@@ -108,7 +123,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
         content = re.sub(r'{[\s\S]*?}', '', content)
         content = re.sub(r'(?m)^(import|from|def|class)\s+.*$', '', content)
         if not content.strip():
-            return "抱歉，我的回复似乎出现了问题。请再尝试一次，如果问题持续，可能需要调整指令。"
+            return "抱歉，暂不支持该操作。如果问题持续，可能需要调整指令。"
         return content.strip()
 
     @property
@@ -125,7 +140,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
         conversation.async_unset_agent(self.hass, self.entry)
         await super().async_will_remove_from_hass()
 
-    async def async_process(self, user_input: conversation.ConversationInput) -> conversation.ConversationResult:
+    async def async_process(self, user_input: conversation.ConversationInput) -> Awaitable[conversation.ConversationResult]:
         current_time = time.time()
         if current_time - self.last_request_time < self.cooldown_period:
             await asyncio.sleep(self.cooldown_period - (current_time - self.last_request_time))
@@ -188,11 +203,11 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                     parse_result=False,
                 )
             ]
-        except TemplateError as err:
+        except template.TemplateError as err:
             LOGGER.error("渲染提示时出错: %s", err)
-            error_message = f"抱歉，我的模板有问题： {err}"
-            filtered_error = self._filter_response_content(error_message)
-            intent_response.async_set_error(intent.IntentResponseErrorCode.UNKNOWN, filtered_error)
+            content_message = f"抱歉，我的模板有问题： {err}"
+            filtered_content = self._filter_response_content(content_message)
+            intent_response.async_set_error(intent.IntentResponseErrorCode.UNKNOWN, filtered_content)
             return conversation.ConversationResult(response=intent_response, conversation_id=conversation_id)
 
         if self.llm_api:
@@ -259,12 +274,12 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                         )
                     except Exception as e:
                         LOGGER.error("工具调用失败: %s", e)
-                        error_message = f"操作执行失败: {str(e)}"
+                        content_message = f"操作执行失败: {str(e)}"
                         messages.append(
                             ChatCompletionMessageParam(
                                 role="tool",
                                 tool_call_id=tool_call["id"],
-                                content=error_message,
+                                content=content_message,
                             )
                         )
                         tool_call_failed = True
@@ -300,31 +315,63 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
             return conversation.ConversationResult(response=intent_response, conversation_id=conversation_id)
 
     async def _extract_entity(self, domain, name=None):
-        try:
-            entity_reg = er.async_get(self.hass)
-            entities = entity_reg.entities
-            if name and isinstance(name, str):
+            try:
+                entity_reg = er.async_get(self.hass)
+                entities = entity_reg.entities
+                if name and isinstance(name, str):
+                    for entity_id, entity in entities.items():
+                        if entity.domain == domain and name.lower() in entity.name.lower():
+                            return entity_id
                 for entity_id, entity in entities.items():
-                    if entity.domain == domain and name.lower() in entity.name.lower():
+                    if entity.domain == domain:
                         return entity_id
-            for entity_id, entity in entities.items():
-                if entity.domain == domain:
-                    return entity_id
-        except Exception:
-            pass
-        return None
+            except Exception:
+                pass
+            return None
 
     async def _handle_tool_call(self, tool_input: llm.ToolInput, user_input: str):
-        intent_name = tool_input.tool_name.lower()
+        try:
+            intent_name = tool_input.tool_name.lower()
+            
+            if is_service_call(user_input):
+                service_info = extract_service_info(user_input)
+                if service_info:
+                    result = await self.service_caller.handle_service_call(service_info)
+                    if isinstance(result, dict) and "content" in result:
+                        return {"content": f"执行服务时出错: {result['content']}"}
+                    return result
+                else:
+                    return {"content": "无法解析服务调用信息，请提供更详细的服务名称和参数。"}
+            
+            if intent_name.startswith("hass"):
+                method_name = f"_handle_{intent_name[4:]}_intent"
+                if hasattr(self, method_name):
+                    try:
+                        result = await getattr(self, method_name)(tool_input)
+                        if isinstance(result, dict) and "content" in result:
+                            return {"content": f"处理意图时出错: {result['content']}"}
+                        return result
+                    except HomeAssistantError as ha_error:
+                        content_message = str(ha_error)
+                        if "Domain not supported" in content_message:
+                            return {"content": f"不支持的设备类型: {content_message.split(':')[-1].strip()}"}
+                        elif "MatchFailedError" in content_message:
+                            return {"content": "未找到匹配的设备。请检查设备名称是否正确，或尝试使用更具体的名称。"}
+                        else:
+                            return {"content": f"处理意图时出错: {content_message}"}
+            
+            if self.llm_api:
+                result = await self.llm_api.async_call_tool(tool_input)
+                if isinstance(result, dict) and "content" in result:
+                    return {"content": f"LLM API 调用出错: {result['content']}"}
+                return result
+            else:
+                return {"content": "无法处理该工具调用，LLM API 未初始化"}
         
-        if any(keyword in user_input.lower() for keyword in ["调用", "服务", "动作执行", "执行服务", "使用服务"]):
-            return await self.service_caller.handle_service_call(tool_input)
-        
-        if intent_name.startswith("hass"):
-            method_name = f"_handle_{intent_name[4:]}_intent"
-            if hasattr(self, method_name):
-                return await getattr(self, method_name)(tool_input)
-        return await self.llm_api.async_call_tool(tool_input)
+        except Exception as e:
+            content_message = f"处理工具调用时发生错误: {str(e)}"
+            LOGGER.error(content_message)
+            return {"content": content_message}
 
     async def _handle_turn_intent(self, tool_input: llm.ToolInput):
         return await self.llm_api.async_call_tool(tool_input)
@@ -339,6 +386,9 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
         return await self.llm_api.async_call_tool(tool_input)
 
     async def _handle_climate_get_temperature_intent(self, tool_input: llm.ToolInput):
+        return await self.llm_api.async_call_tool(tool_input)
+
+    async def _handle_climate_intent(self, tool_input: llm.ToolInput):
         return await self.llm_api.async_call_tool(tool_input)
 
     async def _handle_shopping_list_add_item_intent(self, tool_input: llm.ToolInput):
