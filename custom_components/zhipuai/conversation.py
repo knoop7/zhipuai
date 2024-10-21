@@ -354,7 +354,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                     if ratio > highest_ratio:
                         highest_ratio = ratio
                         best_match = entity_id
-            if best_match and highest_ratio > 80:
+            if best_match and highest_ratio > 85: 
                 return best_match
         for entity_id, entity in entities.items():
             if entity.domain == domain:
