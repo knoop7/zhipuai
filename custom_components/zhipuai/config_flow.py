@@ -1,18 +1,17 @@
 from __future__ import annotations
-
 from typing import Any
 from types import MappingProxyType
-
 import voluptuous as vol
 import aiohttp
 import json
-
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
+    SOURCE_REAUTH,
+    SOURCE_RECONFIGURE,
 )
 from homeassistant import exceptions
 from homeassistant.const import CONF_API_KEY, CONF_NAME, CONF_LLM_HASS_API
@@ -27,16 +26,15 @@ from homeassistant.helpers.selector import (
     TemplateSelector,
 )
 
-from . import LOGGER
 from .const import (
     CONF_PROMPT,
     CONF_TEMPERATURE,
     DEFAULT_NAME,
     CONF_CHAT_MODEL,
     CONF_MAX_TOKENS,
-    CONF_RECOMMENDED,
+    CONF_RECOMMENDED,  
     CONF_TOP_P,
-    CONF_MAX_HISTORY_MESSAGES,  
+    CONF_MAX_HISTORY_MESSAGES,
     DOMAIN,
     RECOMMENDED_MAX_TOKENS,
     RECOMMENDED_TEMPERATURE,
@@ -52,11 +50,11 @@ RECOMMENDED_CHAT_MODEL = "GLM-4-Flash"
 
 ZHIPUAI_MODELS = [
     "GLM-4-Plus",
-    "GLM-4V-Plus",
+    "GLM-4V-Plus", 
     "GLM-4-0520",
     "GLM-4-Long",
     "GLM-4-AirX",
-    "GLM-4-Air",
+    "GLM-4-Air", 
     "GLM-4-FlashX",
     "GLM-4-Flash",
     "GLM-4V",
@@ -64,12 +62,14 @@ ZHIPUAI_MODELS = [
     "GLM-4",
 ]
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Required(CONF_API_KEY): cv.string,
-    }
-)
+STEP_USER_DATA_SCHEMA = vol.Schema({
+    vol.Required(CONF_NAME, default=DEFAULT_NAME): cv.string,
+    vol.Required(CONF_API_KEY): cv.string,
+})
+
+REAUTH_SCHEMA = vol.Schema({
+    vol.Required(CONF_API_KEY): cv.string,
+})
 
 RECOMMENDED_OPTIONS = {
     CONF_RECOMMENDED: True,
@@ -83,13 +83,13 @@ RECOMMENDED_OPTIONS = {
     CONF_COOLDOWN_PERIOD: DEFAULT_COOLDOWN_PERIOD,
 }
 
-ERROR_COOLDOWN_TOO_SMALL = "cooldown_too_small"
-ERROR_COOLDOWN_TOO_LARGE = "cooldown_too_large"
-ERROR_INVALID_OPTION = "invalid_option"
-
 class ZhipuAIConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
     MINOR_VERSION = 0
+
+    def __init__(self) -> None:
+        self._reauth_entry: ConfigEntry | None = None
+        self._reconfigure_entry: ConfigEntry | None = None
 
     async def async_step_user(
         self,
@@ -99,7 +99,6 @@ class ZhipuAIConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="single_instance_allowed")
 
         errors = {}
-
         if user_input is not None:
             try:
                 await self._validate_api_key(user_input[CONF_API_KEY])
@@ -108,19 +107,80 @@ class ZhipuAIConfigFlow(ConfigFlow, domain=DOMAIN):
                     data=user_input,
                     options=RECOMMENDED_OPTIONS,
                 )
-            except UnauthorizedError as e:
-                errors["base"] = "unauthorized"
-                LOGGER.error("无效的API密钥: %s", str(e))
-            except ModelNotFound as e:
+            except UnauthorizedError:
+                errors["base"] = "invalid_auth"
+            except aiohttp.ClientError:
+                errors["base"] = "cannot_connect"
+            except ModelNotFound:
                 errors["base"] = "model_not_found"
-                LOGGER.error("模型未找到: %s", str(e))
-            except Exception as e:
+            except Exception:
                 errors["base"] = "unknown"
-                LOGGER.exception("发生意外异常: %s", str(e))
 
         return self.async_show_form(
             step_id="user",
             data_schema=STEP_USER_DATA_SCHEMA,
+            errors=errors,
+        )
+
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
+        self._reauth_entry = self._get_reauth_entry()
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors = {}
+
+        if user_input is not None:
+            try:
+                await self._validate_api_key(user_input[CONF_API_KEY])
+                assert self._reauth_entry is not None
+                return self.async_update_reload_and_abort(
+                    self._reauth_entry,
+                    data_updates={CONF_API_KEY: user_input[CONF_API_KEY]},
+                    reason="reauth_successful",
+                )
+            except UnauthorizedError:
+                errors["base"] = "invalid_auth"
+            except aiohttp.ClientError:
+                errors["base"] = "cannot_connect" 
+            except Exception:
+                errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=REAUTH_SCHEMA,
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
+        self._reconfigure_entry = self._get_reconfigure_entry()
+        return await self.async_step_reconfigure_confirm()
+
+    async def async_step_reconfigure_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors = {}
+
+        if user_input is not None:
+            try:
+                await self._validate_api_key(user_input[CONF_API_KEY])
+                assert self._reconfigure_entry is not None
+                return self.async_update_reload_and_abort(
+                    self._reconfigure_entry,
+                    data_updates={CONF_API_KEY: user_input[CONF_API_KEY]},
+                    reason="reconfigure_successful",
+                )
+            except UnauthorizedError:
+                errors["base"] = "invalid_auth"
+            except aiohttp.ClientError:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="reconfigure_confirm",
+            data_schema=REAUTH_SCHEMA,
             errors=errors,
         )
 
@@ -141,24 +201,23 @@ class ZhipuAIConfigFlow(ConfigFlow, domain=DOMAIN):
                     if response.status == 200:
                         return
                     elif response.status == 401:
-                        raise UnauthorizedError("未经授权的访问")
+                        raise UnauthorizedError()
                     else:
                         response_json = await response.json()
                         error = response_json.get("error", {})
-                        error_message = error.get("message", "未知错误")
+                        error_message = error.get("message", "")
                         if "model not found" in error_message.lower():
-                            raise ModelNotFound(f"模型未找到: {RECOMMENDED_CHAT_MODEL}")
+                            raise ModelNotFound()
                         else:
-                            raise InvalidAPIKey(f"API请求失败: {error_message}")
+                            raise InvalidAPIKey()
             except aiohttp.ClientError as e:
-                raise InvalidAPIKey(f"无法连接到智谱AI API: {str(e)}")
+                raise
 
     @staticmethod
     @callback
-    def async_get_options_flow(
-        config_entry: ConfigEntry,
-    ) -> ZhipuAIOptionsFlow:
+    def async_get_options_flow(config_entry: ConfigEntry) -> ZhipuAIOptionsFlow:
         return ZhipuAIOptionsFlow(config_entry)
+
 
 class ZhipuAIOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
@@ -170,37 +229,29 @@ class ZhipuAIOptionsFlow(OptionsFlow):
         errors = {}
         if user_input is not None:
             try:
-                LOGGER.debug("Received user input for options: %s", user_input)
-                
                 cooldown_period = user_input.get(CONF_COOLDOWN_PERIOD)
                 if cooldown_period is not None:
                     cooldown_period = float(cooldown_period)
                     if cooldown_period < 0:
-                        errors[CONF_COOLDOWN_PERIOD] = ERROR_COOLDOWN_TOO_SMALL
+                        errors[CONF_COOLDOWN_PERIOD] = "cooldown_too_small"
                     elif cooldown_period > 10:
-                        errors[CONF_COOLDOWN_PERIOD] = ERROR_COOLDOWN_TOO_LARGE
+                        errors[CONF_COOLDOWN_PERIOD] = "cooldown_too_large"
 
                 if not errors:
-                    LOGGER.debug("更新选项: %s", user_input)
                     new_options = self.config_entry.options.copy()
                     new_options.update(user_input)
                     self.hass.config_entries.async_update_entry(
                         self.config_entry,
                         options=new_options
                     )
-                    LOGGER.info("Successfully updated options for entry: %s", self.config_entry.entry_id)
                     return self.async_create_entry(title="", data=new_options)
-            except vol.Invalid as ex:
-                LOGGER.error("Validation error: %s", ex)
-                errors["base"] = ERROR_INVALID_OPTION
-            except ValueError as ex:
-                LOGGER.error("Value error: %s", ex)
-                errors["base"] = ERROR_INVALID_OPTION
-            except Exception as ex:
-                LOGGER.exception("意外错误更新选项: %s", ex)
+            except vol.Invalid:
+                errors["base"] = "invalid_option"
+            except ValueError:
+                errors["base"] = "invalid_option"
+            except Exception:
                 errors["base"] = "unknown"
         
-        LOGGER.debug("Showing options form with errors: %s", errors)
         schema = zhipuai_config_option_schema(self.hass, self.config_entry.options)
         return self.async_show_form(
             step_id="init",
@@ -212,28 +263,16 @@ def zhipuai_config_option_schema(
     hass: HomeAssistant,
     options: dict[str, Any] | MappingProxyType[str, Any],
 ) -> dict:
-    hass_apis: list[SelectOptionDict] = [
-        SelectOptionDict(
-            label="No",
-            value="none",
-        )
-    ]
+    hass_apis = [SelectOptionDict(label="No", value="none")]
     hass_apis.extend(
-        SelectOptionDict(
-            label=api.name,
-            value=api.id,
-        )
+        SelectOptionDict(label=api.name, value=api.id)
         for api in llm.async_get_apis(hass)
     )
 
     schema = {
         vol.Optional(
             CONF_PROMPT,
-            description={
-                "suggested_value": options.get(
-                    CONF_PROMPT, llm.DEFAULT_INSTRUCTIONS_PROMPT
-                )
-            },
+            description={"suggested_value": options.get(CONF_PROMPT, llm.DEFAULT_INSTRUCTIONS_PROMPT)},
         ): TemplateSelector(),
         vol.Optional(
             CONF_LLM_HASS_API,
@@ -241,7 +280,8 @@ def zhipuai_config_option_schema(
             default="none",
         ): SelectSelector(SelectSelectorConfig(options=hass_apis)),
         vol.Required(
-            CONF_RECOMMENDED, default=options.get(CONF_RECOMMENDED, False)
+            CONF_RECOMMENDED,
+            default=options.get(CONF_RECOMMENDED, False)
         ): bool,
         vol.Optional(
             CONF_MAX_HISTORY_MESSAGES,
