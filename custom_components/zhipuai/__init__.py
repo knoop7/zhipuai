@@ -54,23 +54,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         zhipuai_entry = ZhipuAIConfigEntry(hass, entry)
         await zhipuai_entry.async_setup()
         hass.data[DOMAIN][entry.entry_id] = zhipuai_entry
-        LOGGER.info("成功设置, 条目 ID: %s", entry.entry_id)
     except Exception as ex:
-        LOGGER.error("设置 AI 时出错: %s", ex)
         raise ConfigEntryNotReady from ex
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    zhipuai_entry = hass.data[DOMAIN].get(entry.entry_id)
-    if zhipuai_entry is None:
-        return True
-
-    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        await zhipuai_entry.async_unload()
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    try:
+        zhipuai_entry = hass.data[DOMAIN].get(entry.entry_id)
+        if zhipuai_entry is not None and hasattr(zhipuai_entry, 'async_unload'):
+            await zhipuai_entry.async_unload()
+    except Exception:
+        pass
+    finally:
         hass.data[DOMAIN].pop(entry.entry_id, None)
-        LOGGER.info("已卸载 AI 条目，ID: %s", entry.entry_id)
-
     return unload_ok
