@@ -7,6 +7,20 @@
           "api_key": "API 密钥"
         },
         "description": "获取密钥：[点击链接](https://open.bigmodel.cn/console/modelft/dataset)"
+      },
+      "reauth_confirm": {
+        "title": "重新验证智谱 AI",
+        "description": "您的智谱 AI API 密钥已失效，请输入新的 API 密钥",
+        "data": {
+          "api_key": "API 密钥"
+        }
+      },
+      "reconfigure_confirm": {
+        "title": "重新配置智谱 AI",
+        "description": "请输入新的配置信息",
+        "data": {
+          "api_key": "API 密钥"
+        }
       }
     },
     "error": {
@@ -18,7 +32,9 @@
       "invalid_option": "无效的选项值"
     },
     "abort": {
-      "single_instance_allowed": "已经配置，只允许一个配置条目。"
+      "single_instance_allowed": "已经配置，只允许一个配置条目。",
+      "reauth_successful": "重新验证成功",
+      "reconfigure_successful": "重新配置成功"
     }
   },
   "options": {
