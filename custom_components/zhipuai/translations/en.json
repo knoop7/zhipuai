@@ -6,47 +6,63 @@
           "name": "Custom Name",
           "api_key": "API Key"
         },
-        "description": "Get the key: [Click link](https://open.bigmodel.cn/console/modelft/dataset)"
+        "description": "Get your key: [Click the link](https://open.bigmodel.cn/console/modelft/dataset)"
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate ZhiPu AI",
+        "description": "Your ZhiPu AI API key has expired. Please enter a new API key.",
+        "data": {
+          "api_key": "API Key"
+        }
+      },
+      "reconfigure_confirm": {
+        "title": "Reconfigure ZhiPu AI",
+        "description": "Please enter the new configuration information.",
+        "data": {
+          "api_key": "API Key"
+        }
       }
     },
     "error": {
       "cannot_connect": "Unable to connect to the service",
       "invalid_auth": "Invalid authentication",
-      "unknown": "Configuration saved, no further action needed",
-      "cooldown_too_small": "Cooldown value {value} is too small, please set a value greater than or equal to 0!",
-      "cooldown_too_large": "Cooldown value {value} is too large, please set a value less than or equal to 10!",
+      "unknown": "Configuration saved, no need for a second entry.",
+      "cooldown_too_small": "Cooldown period value {value} is too small. Please set it to a value greater than or equal to 0!",
+      "cooldown_too_large": "Cooldown period value {value} is too large. Please set it to a value less than or equal to 10!",
       "invalid_option": "Invalid option value"
     },
     "abort": {
-      "single_instance_allowed": "Already configured, only one configuration entry is allowed."
+      "single_instance_allowed": "Already configured; only one configuration entry is allowed.",
+      "reauth_successful": "Reauthentication successful",
+      "reconfigure_successful": "Reconfiguration successful"
     }
   },
   "options": {
     "step": {
       "init": {
         "data": {
-          "prompt": "Command",
+          "prompt": "Instruction",
           "chat_model": "Chat Model",
-          "max_tokens": "Maximum number of tokens returned in response",
+          "max_tokens": "Maximum tokens to return in response",
           "temperature": "Temperature",
           "top_p": "Top P",
-          "llm_hass_api": "Options",
-          "recommended": "Recommended model settings (The default is the free general-purpose 128K model. If needed, other paid models can be selected, and the actual cost is not high.)",
+          "llm_hass_api": "Option",
+          "recommended": "Recommended model settings",
           "max_history_messages": "Maximum number of history messages",
-          "max_tool_iterations": "Maximum number of tool calls",
+          "max_tool_iterations": "Maximum tool invocation count",
           "cooldown_period": "Cooldown time (seconds)"
         },
         "data_description": {
           "prompt": "Instructions on how the LLM should respond. This can be a template.",
-          "chat_model": "Fill in the chat model to use",
-          "max_tokens": "Set the maximum number of tokens returned in response",
-          "temperature": "Controls output randomness (0-2)",
-          "top_p": "Controls output diversity (0-1)",
+          "chat_model": "Please select the chat model to use (the default free general 128K model is pre-selected; if you require a better experience, you can choose to support other paid models, which are not very expensive. Please check the official website for billing standards.)",
+          "max_tokens": "Set the maximum number of tokens to return in the response.",
+          "temperature": "Controls the randomness of the output (0-2)",
+          "top_p": "Controls the diversity of the output (0-1)",
           "llm_hass_api": "Home Assistant LLM API",
           "recommended": "Use recommended model settings",
-          "max_history_messages": "Set the maximum number of history messages to retain. Purpose: Controls memory functionality to ensure smooth contextual conversation. For home devices, it’s best to set within 5 times to handle failed requests. For other daily conversations, set a threshold above 10.",
-          "max_tool_iterations": "Set the maximum number of tool calls in a single conversation. Purpose: Sets a call request threshold to avoid No system deadlock due to errors, especially designed for low-performance hosts. Recommended: 10-20 times.",
-          "cooldown_period": "Set the minimum interval time between two conversation requests (0-10 seconds). Purpose: Requests will be delayed before being sent. Recommended: within 3 seconds. Ensures the request isn't rejected due to rate limits."
+          "max_history_messages": "Set the maximum number of history messages to retain. This controls the memory function of the input content, ensuring smooth dialogue. Typically, it is best to keep it within 5 for home device controls, effectively addressing requests that cannot be smoothly processed. For other daily conversations, a threshold of more than 10 can be set.",
+          "max_tool_iterations": "Set the maximum number of tool invocations in a single dialogue. This controls the threshold for requests to the system LLM, ensuring that the system does not get stuck in case of errors, especially designed for various low-performance small hosts. It is recommended to set this to 20-30 times.",
+          "cooldown_period": "Set the minimum interval time between two dialogue requests (0-10 seconds). This allows requests to wait for a period before sending, recommended to set within 3 seconds to prevent failures due to rate factors."
         }
       }
     }
