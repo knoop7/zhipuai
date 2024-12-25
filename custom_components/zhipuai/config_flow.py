@@ -221,11 +221,13 @@ class ZhipuAIConfigFlow(ConfigFlow, domain=DOMAIN):
 
 class ZhipuAIOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
-        self.config_entry = config_entry
+        """Initialize options flow."""
+        self._config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        """Manage the options."""
         errors = {}
         if user_input is not None:
             try:
@@ -238,24 +240,14 @@ class ZhipuAIOptionsFlow(OptionsFlow):
                         errors[CONF_COOLDOWN_PERIOD] = "cooldown_too_large"
 
                 if not errors:
-                    new_options = self.config_entry.options.copy()
-                    new_options.update(user_input)
-                    self.hass.config_entries.async_update_entry(
-                        self.config_entry,
-                        options=new_options
-                    )
-                    return self.async_create_entry(title="", data=new_options)
-            except vol.Invalid:
-                errors["base"] = "invalid_option"
+                    return self.async_create_entry(title="", data=user_input)
             except ValueError:
                 errors["base"] = "invalid_option"
-            except Exception:
-                errors["base"] = "unknown"
-        
-        schema = zhipuai_config_option_schema(self.hass, self.config_entry.options)
+
+        schema = vol.Schema(zhipuai_config_option_schema(self.hass, self._config_entry.options))
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(schema),
+            data_schema=schema,
             errors=errors,
         )
 
