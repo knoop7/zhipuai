@@ -1,0 +1,49 @@
+import logging
+
+DOMAIN = "zhipuai"
+LOGGER = logging.getLogger(__name__)
+NAME = "自定义名称"
+DEFAULT_NAME = "智谱清言"
+CONF_RECOMMENDED = "recommended"
+CONF_PROMPT = "prompt"
+CONF_CHAT_MODEL = "chat_model"
+RECOMMENDED_CHAT_MODEL = "GLM-4-Flash"
+CONF_MAX_TOKENS = "max_tokens"
+RECOMMENDED_MAX_TOKENS = 350
+CONF_TOP_P = "top_p"
+RECOMMENDED_TOP_P = 0.7
+CONF_TEMPERATURE = "temperature"
+RECOMMENDED_TEMPERATURE = 0.4
+CONF_MAX_HISTORY_MESSAGES = "max_history_messages"
+RECOMMENDED_MAX_HISTORY_MESSAGES = 5
+
+CONF_MAX_TOOL_ITERATIONS = "max_tool_iterations"
+DEFAULT_MAX_TOOL_ITERATIONS = 20
+CONF_COOLDOWN_PERIOD = "cooldown_period"
+DEFAULT_COOLDOWN_PERIOD = 3
+
+CONF_WEB_SEARCH = "web_search"
+DEFAULT_WEB_SEARCH = False
+
+ZHIPUAI_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+
+ZHIPUAI_WEB_SEARCH_URL = "https://open.bigmodel.cn/api/paas/v4/tools"
+CONF_WEB_SEARCH_STREAM = "web_search_stream"
+DEFAULT_WEB_SEARCH_STREAM = False
+
+ZHIPUAI_IMAGE_GEN_URL = "https://open.bigmodel.cn/api/paas/v4/images/generations"
+CONF_IMAGE_GEN = "image_gen"
+DEFAULT_IMAGE_GEN = False
+
+CONF_IMAGE_SIZE = "image_size"
+DEFAULT_IMAGE_SIZE = "1024x1024"
+
+IMAGE_SIZES = [
+    "1024x1024",
+    "768x1344",
+    "864x1152",
+    "1344x768",
+    "1152x864",
+    "1440x720",
+    "720x1440"
+]
