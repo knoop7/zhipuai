@@ -44,36 +44,6 @@ https://github.com/knoop7/zhipuai
 # 注意如果实体超过1000以上
 # 直接删掉这句话
 
-# ```csv
-# entity_id,name,state
-# {% for entity in states -%} 
-# {{ entity.entity_id }},{{ entity.name }},
-# {{ entity.state }},
-# {% endfor -%}
-#```  
-
-
-### 逻辑修复和执行约束
-1. **状态检查**：确保设备状态有变化时才执行命令，避免重复操作。
-2. **过滤不必要的命令**：`HassTurnOff`、`HassTurnOn`等冗余命令不再生成，直接使用 `execute_services` 函数。
-3. **简化用户操作**：在响应中只返回必要信息，减少多余内容。
-
-
-### 检查避免重复执行
-在执行服务时先检查当前状态，确保设备在目标状态时不会重复执行。例如：
-```jinja
-{% if states('light.living_room') != 'on' %}
-{
-  "domain": "light",
-  "service": "turn_on",
-  "service_data": {
-    "entity_id": "light.living_room"
-  }
-}
-{% endif %}
-
-```
-
 ### 今日油价：
 ```yaml
 {% set sensor = 油价实体 %}
