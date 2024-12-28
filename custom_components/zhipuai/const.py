@@ -22,4 +22,28 @@ DEFAULT_MAX_TOOL_ITERATIONS = 20
 CONF_COOLDOWN_PERIOD = "cooldown_period"
 DEFAULT_COOLDOWN_PERIOD = 3
 
+CONF_WEB_SEARCH = "web_search"
+DEFAULT_WEB_SEARCH = False
+
 ZHIPUAI_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+
+ZHIPUAI_WEB_SEARCH_URL = "https://open.bigmodel.cn/api/paas/v4/tools"
+CONF_WEB_SEARCH_STREAM = "web_search_stream"
+DEFAULT_WEB_SEARCH_STREAM = False
+
+ZHIPUAI_IMAGE_GEN_URL = "https://open.bigmodel.cn/api/paas/v4/images/generations"
+CONF_IMAGE_GEN = "image_gen"
+DEFAULT_IMAGE_GEN = False
+
+CONF_IMAGE_SIZE = "image_size"
+DEFAULT_IMAGE_SIZE = "1024x1024"
+
+IMAGE_SIZES = [
+    "1024x1024",
+    "768x1344",
+    "864x1152",
+    "1344x768",
+    "1152x864",
+    "1440x720",
+    "720x1440"
+]

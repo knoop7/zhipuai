@@ -5,7 +5,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from .const import DOMAIN, LOGGER
-from .service_caller import get_service_caller
+from .intents import get_intent_handler, async_setup_intents
+from .services import async_setup_services
+from .web_search import async_setup_web_search
+from .image_gen import async_setup_image_gen
 
 PLATFORMS: list[Platform] = [Platform.CONVERSATION]
 
@@ -17,7 +20,7 @@ class ZhipuAIConfigEntry:
         self.options = config_entry.options
         self._unsub_options_update_listener = None
         self._cleanup_callbacks = []
-        self.service_caller = get_service_caller(hass)
+        self.intent_handler = get_intent_handler(hass)
 
     @property
     def entry_id(self):
@@ -49,16 +52,24 @@ class ZhipuAIConfigEntry:
         async_dispatcher_send(hass, f"{DOMAIN}_options_updated", entry)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    hass.data.setdefault(DOMAIN, {})
     try:
         zhipuai_entry = ZhipuAIConfigEntry(hass, entry)
         await zhipuai_entry.async_setup()
-        hass.data[DOMAIN][entry.entry_id] = zhipuai_entry
+        hass.data.setdefault(DOMAIN, {})[entry.entry_id] = zhipuai_entry
+        
+        unload_services = await async_setup_services(hass)
+        zhipuai_entry.async_on_unload(unload_services)
+        
+        await async_setup_intents(hass)
+        
+        await async_setup_web_search(hass)
+        await async_setup_image_gen(hass)
+        
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        return True
+        
     except Exception as ex:
         raise ConfigEntryNotReady from ex
-
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

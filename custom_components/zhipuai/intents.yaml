@@ -1,0 +1,124 @@
+ZHIPUAI_CoverGetStateIntent:
+  data:
+    - sentences:
+        - "[<area>]{name}(是|是不是){cover_states:state}[吗|不]"
+      response: one_yesno
+      requires_context:
+        domain: cover
+      slots:
+        domain: cover
+
+    - sentences:
+        - "[{area}][有|有没有]{cover_classes:device_class}[是|是不是]{cover_states:state}[吗|不]"
+      response: any
+      slots:
+        domain: cover
+
+    - sentences:
+        - "[<area>][<all>]{cover_classes:device_class}[是|是不是]都[是]{cover_states:state}[吗|不]"
+        - "<all><area>{cover_classes:device_class}[是|是不是]都[是]{cover_states:state}[吗|不]"
+      response: all
+      slots:
+        domain: cover
+
+    - sentences:
+        - "[<area>]<which>{cover_classes:device_class}[是]{cover_states:state}"
+        - "<which>[<area>]{cover_classes:device_class}[是]{cover_states:state}"
+      response: which
+      slots:
+        domain: cover
+
+    - sentences:
+        - "[{area}]<how_many_is>{cover_classes:device_class}[是]{cover_states:state}"
+        - "<how_many_is>[<area>]{cover_classes:device_class}[是]{cover_states:state}"
+      response: how_many
+      slots:
+        domain: cover
+
+ZHIPUAI_CoverSetPositionIntent:
+  data:
+    - sentences:
+        - "(<numeric_value_set>|<open>|<close>) <name> [position] <to> <position>"
+      requires_context:
+        domain: cover
+      slots:
+        domain: cover
+
+    - sentences:
+        - "(<numeric_value_set>|<open>|<close>) <area> {cover_classes:device_class}[ position] <to> <position>"
+      slots:
+        domain: cover
+
+    - sentences:
+        - "[<let>] <name> (<numeric_value_set>|<open>|<close>) [position] <to> <position>"
+      requires_context:
+        domain: cover
+      slots:
+        domain: cover
+
+    - sentences:
+        - "[<let>]<area>{cover_classes:device_class}(<numeric_value_set>|<open>|<close>)[ position] <to> <position>"
+      slots:
+        domain: cover
+
+
+
+HassGetWeather:
+  data:
+    - sentences:
+        - "[现在|当前][的]天气[怎么样]"
+        - "查看[现在|当前][的]天气"
+        - "天气[预报|情况]"
+      slots:
+        domain: weather
+
+    - sentences:
+        - "[查询|查看][<area>]{name}[的]天气[怎么样]"
+        - "[现在|当前][<area>]{name}[的]天气[如何|状况]"
+        - "[<area>]{name}天气[预报]"
+      requires_context:
+        domain: weather
+
+HassGetState:
+  data:
+    - sentences:
+        - "[查询|查看][<area>]{name}[的]状态"
+        - "[<area>]{name}[现在|当前]是什么状态"
+        - "[<area>]{name}[怎么样|如何]"
+      slots:
+        domain: all
+
+    - sentences:
+        - "[<area>]{name}[的锁](是不是|有没有){lock_states:state}"
+        - "[<area>]{name}[的锁][是|有]{lock_states:state}[吗|不]"
+      response: one_yesno
+      requires_context:
+        domain: lock
+      slots:
+        domain: lock
+
+ZhipuAIWebSearch:
+  data:
+    - sentences:
+        - "搜索{query}"
+        - "查找{query}"
+        - "查询{query}"
+        - "帮我搜索{query}"
+        - "帮我查找{query}"
+        - "帮我联网{query}"
+        - "search for {query}"
+        - "search {query}"
+        - "find {query}"
+        - "look up {query}"
+      slots:
+        query:
+          type: text
+          example: "中国队奥运会奖牌数"
+
+CameraAnalyzeIntent:
+  speech:
+    text: 正在分析摄像头内容
+  action:
+    service: image_processing.scan
+    data:
+      entity_id: "{{ camera_name }}"

@@ -2,21 +2,20 @@ import json
 import asyncio
 import time
 import re
-from typing import Any, Literal, TypedDict, Dict, Optional
+from typing import Any, Literal, TypedDict, Dict, List, Optional
 from voluptuous_openapi import convert
-import voluptuous as vol
 from homeassistant.components import assist_pipeline, conversation
 from homeassistant.components.conversation import trace
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, CONF_LLM_HASS_API, MATCH_ALL, ATTR_ENTITY_ID
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, Context
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import device_registry as dr, intent, llm, template, entity_registry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.exceptions import HomeAssistantError
 from .ai_request import send_ai_request
+from .intents import IntentHandler, extract_intent_info
 from homeassistant.util import ulid
-from rapidfuzz import fuzz
 from .const import (
     CONF_CHAT_MODEL,
     CONF_MAX_TOKENS,
@@ -34,9 +33,8 @@ from .const import (
     CONF_COOLDOWN_PERIOD,
     DEFAULT_MAX_TOOL_ITERATIONS,
     DEFAULT_COOLDOWN_PERIOD,
-    ZHIPUAI_URL,
 )
-from .service_caller import ServiceCaller
+
 
 class ChatCompletionMessageParam(TypedDict, total=False):
     role: str
@@ -67,49 +65,102 @@ def _format_tool(tool: llm.Tool, custom_serializer: Any | None) -> ChatCompletio
     return ChatCompletionToolParam(type="function", function=tool_spec)
 
 def is_service_call(user_input: str) -> bool:
-    if not user_input:
-        return False
-    keywords = ["调用", "执行", "脚本", "自动化"]
-    return any(user_input.startswith(keyword) for keyword in keywords)
+    patterns = {
+        "control": ["让", "请", "帮我", "麻烦", "把", "将"],
+        "action": {
+            "turn_on": ["打开", "开启", "启动", "激活", "运行", "执行"],
+            "turn_off": ["关闭", "关掉", "停止"],
+            "toggle": ["切换"],
+            "press": ["按", "按下", "点击"],
+            "select": ["选择", "下一个", "上一个", "第一个", "最后一个"],
+            "trigger": ["触发", "调用"],
+            "media": ["暂停", "继续播放", "播放", "停止", "下一首", "下一曲", "下一个", "切歌", "换歌","上一首", "上一曲", "上一个", "返回上一首", "音量"]
+        }
+    }
+    return bool(user_input and (any(k in user_input for k in patterns["control"]) or any(k in v for v in patterns["action"].values() for k in v)))
 
-def extract_service_info(user_input: str, hass: HomeAssistant) -> Dict[str, Any]:
+def extract_service_info(user_input: str, hass: HomeAssistant) -> Optional[Dict[str, Any]]:
+    def find_entity(domain: str, text: str) -> Optional[str]:
+        text = text.lower()
+        for e_id in hass.states.async_entity_ids(domain):
+            state = hass.states.get(e_id)
+            friendly_name = state.attributes.get("friendly_name", "").lower()
+            entity_name = e_id.split(".")[1].lower()
+            if (text in entity_name or text in friendly_name or 
+                entity_name in text or friendly_name in text):
+                return e_id
+        return None
+
+    def clean_text(text: str, patterns: List[str]) -> str:
+        control_words = ["让", "请", "帮我", "麻烦", "把", "将"]
+        for word in patterns + control_words:
+            text = text.replace(word, "")
+        return text.strip()
+
     if not is_service_call(user_input):
         return None
-        
-    for keyword in ["调用", "执行", "脚本", "自动化"]:
-        if user_input.startswith(keyword):
-            name = user_input.replace(keyword, "").strip()
-            break
-    
-    for entity_id in hass.states.async_entity_ids("automation"):
-        state = hass.states.get(entity_id)
-        if not state:
-            continue
-        friendly_name = state.attributes.get("friendly_name", "")
-        if friendly_name and name == friendly_name:
-            return {
-                "domain": "automation",
-                "service": "trigger",
-                "data": {"entity_id": entity_id}
-            }
-    
-    for entity_id in hass.states.async_entity_ids("script"):
-        state = hass.states.get(entity_id)
-        if not state:
-            continue
-        friendly_name = state.attributes.get("friendly_name", "")
-        if friendly_name and name == friendly_name:
-            return {
-                "domain": "script",
-                "service": "turn_on",
-                "data": {"entity_id": entity_id}
-            }
-    
-    return None
 
+    media_patterns = {
+        "暂停": "media_pause",
+        "继续播放": "media_play",
+        "播放": "media_play",
+        "停止": "media_stop",
+        "下一首": "media_next_track",
+        "下一曲": "media_next_track",
+        "下一个": "media_next_track",
+        "切歌": "media_next_track",
+        "换歌": "media_next_track",
+        "上一首": "media_previous_track",
+        "上一曲": "media_previous_track",
+        "上一个": "media_previous_track",
+        "返回上一首": "media_previous_track",
+        "音量": "volume_set"
+    }
+    for pattern, service in media_patterns.items():
+        if pattern in user_input.lower():
+            if entity_id := find_entity("media_player", user_input):
+                if service == "volume_set":
+                    volume_match = re.search(r'(\d+)', user_input)
+                    if volume_match:
+                        volume = int(volume_match.group(1)) / 100
+                        return {"domain": "media_player", "service": service, "data": {"entity_id": entity_id, "volume_level": volume}}
+                return {"domain": "media_player", "service": service, "data": {"entity_id": entity_id}}
+
+    button_patterns = ["按", "按下", "点击"]
+    if any(p in user_input for p in button_patterns):
+        if entity_id := (re.search(r'(button\.\w+)', user_input).group(1) if re.search(r'(button\.\w+)', user_input) 
+            else find_entity("button", clean_text(user_input, button_patterns))):
+            return {"domain": "button", "service": "press", "data": {"entity_id": entity_id}}
+
+    select_patterns = {
+        "下一个": ("select_next", True),
+        "上一个": ("select_previous", True), 
+        "第一个": ("select_first", False),
+        "最后一个": ("select_last", False),
+        "选择": ("select_option", False)
+    }
+    if any(p in user_input for p in select_patterns.keys()):
+        if entity_id := find_entity("select", user_input):
+            pattern = next((k for k in select_patterns.keys() if k in user_input), "选择")
+            service, cycle = select_patterns[pattern]
+            return {"domain": "select", "service": service, "data": {"entity_id": entity_id, "cycle": cycle}}
+
+    automation_patterns = ["触发", "调用", "执行", "运行", "启动"]
+    if any(p in user_input for p in automation_patterns):
+        name = clean_text(user_input, automation_patterns + ["脚本", "自动化", "场景"])
+        if "脚本" in user_input.lower():
+            if entity_id := find_entity("script", name):
+                return {"domain": "script", "service": "turn_on", "data": {"entity_id": entity_id}}
+        for domain, service in [("automation", "trigger"), ("script", "turn_on"), ("scene", "turn_on")]:
+            if entity_id := find_entity(domain, name):
+                return {"domain": domain, "service": service, "data": {"entity_id": entity_id}}
+
+    return None
+    
 class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.AbstractConversationAgent):
     _attr_has_entity_name = True
     _attr_name = None
+    _attr_response = ""
 
     def __init__(self, entry: ConfigEntry, hass: HomeAssistant) -> None:
         self.entry = entry
@@ -129,11 +180,13 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
         self.max_tool_iterations = min(entry.options.get(CONF_MAX_TOOL_ITERATIONS, DEFAULT_MAX_TOOL_ITERATIONS), 5)
         self.cooldown_period = entry.options.get(CONF_COOLDOWN_PERIOD, DEFAULT_COOLDOWN_PERIOD)
         self.llm_api = None
-        self.service_caller = ServiceCaller(hass)
+        self.intent_handler = IntentHandler(hass)
         self.entity_registry = er.async_get(hass)
         self.device_registry = dr.async_get(hass)
         self.service_call_attempts = 0
-
+        self._attr_native_value = "就绪"
+        self._attr_extra_state_attributes = {"response": ""}
+        
     def _filter_response_content(self, content: str) -> str:
         content = re.sub(r'```[\s\S]*?```', '', content)
         content = re.sub(r'{[\s\S]*?}', '', content)
@@ -157,13 +210,52 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
         await super().async_will_remove_from_hass()
 
     async def async_process(self, user_input: conversation.ConversationInput) -> conversation.ConversationResult:
+        if user_input.context and user_input.context.id and user_input.context.id.startswith(f"{DOMAIN}_service_call"):
+            return None
+            
         current_time = time.time()
         if current_time - self.last_request_time < self.cooldown_period:
             await asyncio.sleep(self.cooldown_period - (current_time - self.last_request_time))
         self.last_request_time = time.time()
 
-        options = self.entry.options
         intent_response = intent.IntentResponse(language=user_input.language)
+        
+        if is_service_call(user_input.text):
+            service_info = extract_service_info(user_input.text, self.hass)
+            if service_info:
+                result = await self.intent_handler.call_service(
+                    service_info["domain"],
+                    service_info["service"],
+                    service_info["data"]
+                )
+                if result["success"]:
+                    intent_response.async_set_speech(result["message"])
+                else:
+                    intent_response.async_set_error(
+                        intent.IntentResponseErrorCode.NO_VALID_TARGETS,
+                        result["message"]
+                    )
+                return conversation.ConversationResult(
+                    response=intent_response,
+                    conversation_id=user_input.conversation_id
+                )
+                
+        intent_info = extract_intent_info(user_input.text, self.hass)
+        if intent_info:
+            result = await self.intent_handler.handle_intent(intent_info)
+            if result["success"]:
+                intent_response.async_set_speech(result["message"])
+            else:
+                intent_response.async_set_error(
+                    intent.IntentResponseErrorCode.NO_VALID_TARGETS,
+                    result["message"]
+                )
+            return conversation.ConversationResult(
+                response=intent_response,
+                conversation_id=user_input.conversation_id
+            )
+
+        options = self.entry.options
         tools: list[ChatCompletionToolParam] | None = None
         user_name: str | None = None
         llm_context = llm.LLMContext(
@@ -197,7 +289,6 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
 
         if user_input.context and user_input.context.user_id and (user := await self.hass.auth.async_get_user(user_input.context.user_id)):
             user_name = user.name
-
         try:
             er = entity_registry.async_get(self.hass)
             exposed_entities = [
@@ -219,6 +310,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                     parse_result=False,
                 )
             ]
+
         except template.TemplateError as err:
             content_message = f"抱歉，我的模板有问题： {err}"
             filtered_content = self._filter_response_content(content_message)
@@ -252,11 +344,13 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                 if tools:
                     payload["tools"] = tools
 
-                result = await send_ai_request(api_key, payload)
 
+                result = await send_ai_request(api_key, payload)
                 response = result["choices"][0]["message"]
 
                 messages.append(response)
+                self._attr_response = response.get("content", "")
+
                 tool_calls = response.get("tool_calls")
 
                 if not tool_calls:
@@ -269,6 +363,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                             tool_name=tool_call["function"]["name"],
                             tool_args=json.loads(tool_call["function"]["arguments"]),
                         )
+
                         tool_response = await self._handle_tool_call(tool_input, user_input.text)
 
                         if isinstance(tool_response, dict) and "error" in tool_response:
@@ -296,6 +391,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                 if tool_call_failed and self.service_call_attempts >= 3:
                     return await self._fallback_to_hass_llm(user_input, conversation_id)
 
+
             final_content = response.get("content", "").strip()
             
             if is_service_call(user_input.text):
@@ -310,18 +406,25 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                         )
                         message = f"成功执行{service_info['domain']}：{service_info['data']['entity_id']}"
                         intent_response.response_text = message
-                        return conversation.ConversationResult(response=intent_response, conversation_id=conversation_id)
+                        return conversation.ConversationResult(
+                            response=intent_response,
+                            conversation_id=conversation_id
+                        )
                     except Exception as e:
                         intent_response.async_set_error(
-                            conversation.IntentResponseErrorCode.UNKNOWN,
+                            intent.IntentResponseErrorCode.UNKNOWN,
                             f"执行服务失败：{str(e)}"
                         )
-                        return conversation.ConversationResult(response=intent_response, conversation_id=conversation_id)
+                        return conversation.ConversationResult(
+                            response=intent_response,
+                            conversation_id=conversation_id
+                        )
 
             filtered_content = self._filter_response_content(final_content)
 
             self.history[conversation_id] = messages
             intent_response.async_set_speech(filtered_content)
+            self._attr_extra_state_attributes["response"] = filtered_content
             return conversation.ConversationResult(response=intent_response, conversation_id=conversation_id)
 
         except Exception as err:
@@ -329,104 +432,30 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
 
     async def _handle_tool_call(self, tool_input: llm.ToolInput, user_input: str) -> Dict[str, Any]:
         try:
-            if is_service_call(user_input):
-                service_info = extract_service_info(user_input, self.hass)
-                if service_info:
-                    entity_id = service_info["data"]["entity_id"]
-                    
-                    
-                    if entity_id not in self.hass.states.async_entity_ids():
-                        return {"error": f"找不到实体: {entity_id}"}
-                    
-                    
-                    state = self.hass.states.get(entity_id)
-                    if not state:
-                        return {"error": f"实体不可用: {entity_id}"}
-                    
-                    
-                    supported_features = state.attributes.get("supported_features", 0)
-                    
-                    
-                    domain = service_info["domain"]
-                    service = service_info["service"]
-                    
-                    if domain == "fan":
-                        if service == "set_percentage" and not (supported_features & 1):  
-                            return {"error": f"风扇 {entity_id} 不支持调速功能"}
-                    elif domain == "cover":
-                        if service == "close" and not (supported_features & 2):  
-                            return {"error": f"窗帘/门 {entity_id} 不支持关闭功能"}
-                        elif service == "set_position" and not (supported_features & 4):  
-                            return {"error": f"窗帘/门 {entity_id} 不支持设置位置"}
-                    
-                    try:
-                        
-                        self.hass.services.call(
-                            domain,
-                            service,
-                            service_info["data"],
-                            blocking=False,
-                            target={"entity_id": entity_id}
-                        )
-                        return {
-                            "success": True,
-                            "message": f"已发送 {domain}.{service} 命令到 {entity_id}"
-                        }
-                    except Exception as e:
-                        error_msg = str(e)
-                        if "does not support this service" in error_msg:
-                            return {"error": f"实体 {entity_id} 不支持该操作"}
-                        elif "not currently available" in error_msg:
-                            return {"error": f"实体 {entity_id} 当前不可用"}
-                        else:
-                            return {"error": f"执行服务失败：{error_msg}"}
-                else:
-                    return {"error": "无法解析服务调用信息"}
-            
             if self.llm_api and hasattr(self.llm_api, "async_call_tool"):
                 try:
                     result = await self.llm_api.async_call_tool(tool_input)
-                    if isinstance(result, dict) and "error" in result:
-                        return {"error": f"LLM API调用出错: {result['error']}"}
-                    return result
+                    if isinstance(result, dict) and "error" not in result:
+                        return result
                 except Exception as e:
-                    return {"error": f"LLM API调用失败: {str(e)}"}
+                    _LOGGER.warning("LLM API调用失败: %s", str(e))
+            
+            if is_service_call(user_input):
+                service_info = extract_service_info(user_input, self.hass)
+                if service_info:
+                    result = await self.intent_handler.call_service(
+                        service_info["domain"],
+                        service_info["service"],
+                        service_info["data"]
+                    )
+                    return result
+                else:
+                    return {"error": "无法解析服务调用信息"}
+                
             return {"error": "无法处理该工具调用"}
-        
+            
         except Exception as e:
             return {"error": f"处理工具调用时发生错误: {str(e)}"}
-
-    def _handle_home_assistant_error(self, error: HomeAssistantError) -> Dict[str, str]:
-        content_message = str(error)
-        if "Domain not supported" in content_message:
-            return {"error": f"不支持的设备类型: {content_message.split(':')[-1].strip()}"}
-        elif "MatchFailedError" in content_message:
-            return {"error": "未找到匹配的设备。请检查设备名称是否正确，或尝试使用更具体的名称。"}
-        elif "not currently available" in content_message:
-            return {"error": "设备当前不可用，请检查设备是否在线或已配置。"}
-        elif "does not support this service" in content_message:
-            return {"error": "设备不支持该操作，请检查设备支持的功能。"}
-        else:
-            return {"error": f"处理意图时出错: {content_message}"}
-
-    async def _extract_entity(self, domain: str, name: Optional[str] = None) -> Optional[str]:
-        entities = self.entity_registry.entities
-        if name and isinstance(name, str):
-            best_match = None
-            highest_ratio = 0
-            for entity_id, entity in entities.items():
-                if entity.domain == domain:
-                    ratio = fuzz.ratio(name.lower(), entity.name.lower())
-                    if ratio > highest_ratio:
-                        highest_ratio = ratio
-                        best_match = entity_id
-            if best_match and highest_ratio > 85: 
-                return best_match
-        for entity_id, entity in entities.items():
-            if entity.domain == domain:
-                return entity_id
-        return None
-
 
     async def _fallback_to_hass_llm(self, user_input: conversation.ConversationInput, conversation_id: str) -> conversation.ConversationResult:
         try:
@@ -440,54 +469,6 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                 f"很抱歉，我现在无法正确处理您的请求。请稍后再试。错误: {err}"
             )
             return conversation.ConversationResult(response=intent_response, conversation_id=conversation_id)
-
-    async def _validate_service_for_entity(self, domain: str, service: str, entity_id: str) -> bool:
-        
-        try:
-            service_details = self.hass.services.async_services().get(domain, {}).get(service)
-            if not service_details:
-                return False
-            
-            entity = self.hass.states.get(entity_id)
-            if not entity:
-                return False
-
-            return True
-        except Exception as e:
-            return False
-
-    async def _handle_turn_intent(self, tool_input: llm.ToolInput) -> Dict[str, Any]:
-        try:
-            entity_id = await self._extract_entity(tool_input.tool_args["domain"], tool_input.tool_args.get("name"))
-            if not entity_id:
-                return {"error": f"未找到匹配的 {tool_input.tool_args['domain']} 设备"}
-            
-            state = tool_input.tool_args["state"]
-            service = f"turn_{state}"
-            
-            if not await self._validate_service_for_entity(tool_input.tool_args["domain"], service, entity_id):
-                return {"error": f"实体 {entity_id} 不支持 {service} 服务"}
-            
-            await self.hass.services.async_call(
-                tool_input.tool_args["domain"], service, {ATTR_ENTITY_ID: entity_id}
-            )
-            return {"success": True, "message": f"已将 {entity_id} 设置为 {state}"}
-        except Exception as e:
-            return {"error": f"执行 turn 意图时出错: {str(e)}"}
-
-    async def _handle_get_state_intent(self, tool_input: llm.ToolInput) -> Dict[str, Any]:
-        try:
-            entity_id = await self._extract_entity(tool_input.tool_args["domain"], tool_input.tool_args.get("name"))
-            if not entity_id:
-                return {"error": f"未找到匹配的 {tool_input.tool_args['domain']} 设备"}
-            
-            state = self.hass.states.get(entity_id)
-            if state:
-                return {"success": True, "state": state.state, "attributes": state.attributes}
-            else:
-                return {"error": f"无法获取 {entity_id} 的状态"}
-        except Exception as e:
-            return {"error": f"执行 get_state 意图时出错: {str(e)}"}
 
     @staticmethod
     async def _async_entry_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

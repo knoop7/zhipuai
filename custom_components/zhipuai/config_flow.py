@@ -44,6 +44,8 @@ from .const import (
     CONF_COOLDOWN_PERIOD,
     DEFAULT_MAX_TOOL_ITERATIONS,
     DEFAULT_COOLDOWN_PERIOD,
+    CONF_WEB_SEARCH,
+    DEFAULT_WEB_SEARCH,
 )
 
 RECOMMENDED_CHAT_MODEL = "GLM-4-Flash"
@@ -95,9 +97,6 @@ class ZhipuAIConfigFlow(ConfigFlow, domain=DOMAIN):
         self,
         user_input: dict[str, Any] | None = None,
     ) -> ConfigFlowResult:
-        if self._async_current_entries():
-            return self.async_abort(reason="single_instance_allowed")
-
         errors = {}
         if user_input is not None:
             try:
@@ -221,13 +220,11 @@ class ZhipuAIConfigFlow(ConfigFlow, domain=DOMAIN):
 
 class ZhipuAIOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
-        """Initialize options flow."""
         self._config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage the options."""
         errors = {}
         if user_input is not None:
             try:
@@ -299,6 +296,11 @@ def zhipuai_config_option_schema(
             vol.Range(min=0, max=10),
             msg="冷却时间必须在0到10秒之间"
         ),
+        vol.Optional(
+            CONF_WEB_SEARCH,
+            default=DEFAULT_WEB_SEARCH,
+            description={"suggested_value": options.get(CONF_WEB_SEARCH)},
+        ): bool,       
     }
 
     if not options.get(CONF_RECOMMENDED, False):
@@ -318,6 +320,11 @@ def zhipuai_config_option_schema(
                 description={"suggested_value": options.get(CONF_TEMPERATURE)},
                 default=RECOMMENDED_TEMPERATURE,
             ): NumberSelector(NumberSelectorConfig(min=0, max=2, step=0.05)),
+            vol.Optional(
+                CONF_WEB_SEARCH,
+                default=DEFAULT_WEB_SEARCH,
+                description={"suggested_value": options.get(CONF_WEB_SEARCH)},
+            ): bool,
         })
 
     return schema
