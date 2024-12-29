@@ -62,7 +62,6 @@ ZHIPUAI_CoverSetPositionIntent:
         domain: cover
 
 
-
 HassGetWeather:
   data:
     - sentences:
@@ -101,21 +100,76 @@ ZhipuAIWebSearch:
   data:
     - sentences:
         - "搜索{query}"
-        - "查找{query}"
-        - "查询{query}"
-        - "帮我搜索{query}"
-        - "帮我查找{query}"
         - "帮我联网{query}"
+        - "帮我上网查{query}"
+        - "联网搜索{query}"
+        - "联网查找{query}"
+        - "联网查询{query}"
+        - "在网上搜索{query}"
+        - "在网上查找{query}"
+        - "在网上查询{query}"
+        - "上网搜索{query}"
+        - "上网查找{query}"
+        - "上网查询{query}"
+        - "网上搜索{query}"
+        - "网上查找{query}"
+        - "网上查询{query}"
+        - "互联网搜索{query}"
+        - "互联网查找{query}"
+        - "互联网查询{query}"
+        - "百度{query}"
+        - "谷歌{query}"
+        - "必应{query}"
+        - "搜一下{query}"
+        - "查一下{query}"
+        - "帮我找找{query}"
+        - "帮忙搜索{query}"
+        - "帮忙查找{query}"
+        - "帮忙查询{query}"
         - "search for {query}"
         - "search {query}"
         - "find {query}"
         - "look up {query}"
+        - "google {query}"
+        - "bing {query}"
       slots:
         query:
           type: text
           example: "中国队奥运会奖牌数"
 
 CameraAnalyzeIntent:
+  data:
+    - sentences:
+        - "分析{camera_name}看到了什么{question}"
+        - "分析{camera_name}拍到了什么{question}"
+        - "分析{camera_name}的画面{question}"
+        - "分析{camera_name}的内容{question}"
+        - "分析{camera_name}的图像{question}"
+        - "分析{camera_name}的视频{question}"
+        - "帮我看看{camera_name}{question}"
+        - "帮我分析{camera_name}{question}"
+        - "帮我识别{camera_name}{question}"
+        - "查看{camera_name}的画面{question}"
+        - "查看{camera_name}拍到什么{question}"
+        - "检查{camera_name}的画面{question}"
+        - "观察{camera_name}的画面{question}"
+        - "识别{camera_name}的画面{question}"
+        - "看看{camera_name}拍到了什么{question}"
+        - "看一下{camera_name}的画面{question}"
+        - "告诉我{camera_name}拍到了什么{question}"
+        - "描述{camera_name}的画面{question}"
+        - "解释{camera_name}的画面{question}"
+        - "分析一下{camera_name}的画面{question}"
+        - "analyze what {camera_name} sees {question}"
+        - "check what {camera_name} captured {question}"
+        - "describe what {camera_name} sees {question}"
+      slots:
+        camera_name:
+          type: text
+          example: "客厅摄像头"
+        question:
+          type: text
+          example: "有什么异常吗"
   speech:
     text: 正在分析摄像头内容
   action:

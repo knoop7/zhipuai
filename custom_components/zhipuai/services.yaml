@@ -198,3 +198,24 @@ web_search:
       default: false
       selector:
         boolean: {}
+
+entity_analysis:
+  name: 实体历史记录
+  description: 获取实体的历史状态记录（如人在传感器、灯光、温度、湿度、光照度变化记录等）
+  fields:
+    entity_id:
+      name: 实体ID
+      description: 要获取历史记录的实体ID
+      required: true
+      selector:
+        entity:
+          multiple: true
+    days:
+      name: 天数
+      description: 要获取的历史记录天数（1-15天）
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 15
+          mode: box

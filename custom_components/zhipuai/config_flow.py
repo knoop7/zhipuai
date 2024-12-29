@@ -3,15 +3,12 @@ from typing import Any
 from types import MappingProxyType
 import voluptuous as vol
 import aiohttp
-import json
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
-    SOURCE_REAUTH,
-    SOURCE_RECONFIGURE,
 )
 from homeassistant import exceptions
 from homeassistant.const import CONF_API_KEY, CONF_NAME, CONF_LLM_HASS_API
@@ -32,7 +29,7 @@ from .const import (
     DEFAULT_NAME,
     CONF_CHAT_MODEL,
     CONF_MAX_TOKENS,
-    CONF_RECOMMENDED,  
+    CONF_RECOMMENDED,
     CONF_TOP_P,
     CONF_MAX_HISTORY_MESSAGES,
     DOMAIN,
@@ -46,9 +43,13 @@ from .const import (
     DEFAULT_COOLDOWN_PERIOD,
     CONF_WEB_SEARCH,
     DEFAULT_WEB_SEARCH,
+    CONF_HISTORY_ANALYSIS,
+    CONF_HISTORY_ENTITIES,
+    CONF_HISTORY_DAYS,
+    DEFAULT_HISTORY_ANALYSIS,
+    DEFAULT_HISTORY_DAYS,
+    MAX_HISTORY_DAYS,
 )
-
-RECOMMENDED_CHAT_MODEL = "GLM-4-Flash"
 
 ZHIPUAI_MODELS = [
     "GLM-4-Plus",
@@ -64,14 +65,7 @@ ZHIPUAI_MODELS = [
     "GLM-4",
 ]
 
-STEP_USER_DATA_SCHEMA = vol.Schema({
-    vol.Required(CONF_NAME, default=DEFAULT_NAME): cv.string,
-    vol.Required(CONF_API_KEY): cv.string,
-})
-
-REAUTH_SCHEMA = vol.Schema({
-    vol.Required(CONF_API_KEY): cv.string,
-})
+RECOMMENDED_CHAT_MODEL = "GLM-4-Flash"
 
 RECOMMENDED_OPTIONS = {
     CONF_RECOMMENDED: True,
@@ -117,7 +111,10 @@ class ZhipuAIConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=STEP_USER_DATA_SCHEMA,
+            data_schema=vol.Schema({
+                vol.Required(CONF_NAME, default=DEFAULT_NAME): cv.string,
+                vol.Required(CONF_API_KEY): cv.string,
+            }),
             errors=errors,
         )
 
@@ -148,7 +145,9 @@ class ZhipuAIConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=REAUTH_SCHEMA,
+            data_schema=vol.Schema({
+                vol.Required(CONF_API_KEY): cv.string,
+            }),
             errors=errors,
         )
 
@@ -179,7 +178,9 @@ class ZhipuAIConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reconfigure_confirm",
-            data_schema=REAUTH_SCHEMA,
+            data_schema=vol.Schema({
+                vol.Required(CONF_API_KEY): cv.string,
+            }),
             errors=errors,
         )
 
@@ -221,6 +222,7 @@ class ZhipuAIConfigFlow(ConfigFlow, domain=DOMAIN):
 class ZhipuAIOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._config_entry = config_entry
+        self._data = {}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -237,7 +239,10 @@ class ZhipuAIOptionsFlow(OptionsFlow):
                         errors[CONF_COOLDOWN_PERIOD] = "cooldown_too_large"
 
                 if not errors:
-                    return self.async_create_entry(title="", data=user_input)
+                    self._data.update(user_input)
+                    if user_input.get(CONF_HISTORY_ANALYSIS):
+                        return await self.async_step_history()
+                    return self.async_create_entry(title="", data=self._data)
             except ValueError:
                 errors["base"] = "invalid_option"
 
@@ -247,6 +252,57 @@ class ZhipuAIOptionsFlow(OptionsFlow):
             data_schema=schema,
             errors=errors,
         )
+
+    async def async_step_history(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors = {}
+        current_options = self._config_entry.options
+        
+        if user_input is not None:
+            try:
+                days = user_input.get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
+                if days < 1 or days > MAX_HISTORY_DAYS:
+                    errors[CONF_HISTORY_DAYS] = "invalid_days"
+                if not user_input.get(CONF_HISTORY_ENTITIES):
+                    errors[CONF_HISTORY_ENTITIES] = "no_entities"
+
+                if not errors:
+                    self._data.update(user_input)
+                    return self.async_create_entry(title="", data=self._data)
+            except ValueError:
+                errors["base"] = "invalid_option"
+
+        entities = {}
+        for entity in self.hass.states.async_all():
+            friendly_name = entity.attributes.get("friendly_name", entity.entity_id)
+            entities[entity.entity_id] = f"{friendly_name} ({entity.entity_id})"
+
+        return self.async_show_form(
+            step_id="history",
+            data_schema=vol.Schema({
+                vol.Required(
+                    CONF_HISTORY_ENTITIES,
+                    default=current_options.get(CONF_HISTORY_ENTITIES, [])
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[{"value": k, "label": v} for k, v in entities.items()],
+                        multiple=True,
+                        mode="dropdown",
+                        custom_value=False,
+                    )
+                ),
+                vol.Required(
+                    CONF_HISTORY_DAYS,
+                    default=current_options.get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=1, max=MAX_HISTORY_DAYS),
+                ),
+            }),
+            errors=errors,
+        )
+
 
 def zhipuai_config_option_schema(
     hass: HomeAssistant,
@@ -299,8 +355,12 @@ def zhipuai_config_option_schema(
         vol.Optional(
             CONF_WEB_SEARCH,
             default=DEFAULT_WEB_SEARCH,
-            description={"suggested_value": options.get(CONF_WEB_SEARCH)},
-        ): bool,       
+        ): bool,
+        vol.Optional(
+            CONF_HISTORY_ANALYSIS,
+            default=options.get(CONF_HISTORY_ANALYSIS, DEFAULT_HISTORY_ANALYSIS),
+            description={"suggested_value": options.get(CONF_HISTORY_ANALYSIS, DEFAULT_HISTORY_ANALYSIS)},
+        ): bool,
     }
 
     if not options.get(CONF_RECOMMENDED, False):
@@ -320,11 +380,6 @@ def zhipuai_config_option_schema(
                 description={"suggested_value": options.get(CONF_TEMPERATURE)},
                 default=RECOMMENDED_TEMPERATURE,
             ): NumberSelector(NumberSelectorConfig(min=0, max=2, step=0.05)),
-            vol.Optional(
-                CONF_WEB_SEARCH,
-                default=DEFAULT_WEB_SEARCH,
-                description={"suggested_value": options.get(CONF_WEB_SEARCH)},
-            ): bool,
         })
 
     return schema

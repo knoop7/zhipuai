@@ -2,6 +2,7 @@ import json
 import asyncio
 import time
 import re
+from datetime import datetime, timedelta
 from typing import Any, Literal, TypedDict, Dict, List, Optional
 from voluptuous_openapi import convert
 from homeassistant.components import assist_pipeline, conversation
@@ -13,9 +14,11 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import device_registry as dr, intent, llm, template, entity_registry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder.history import get_significant_states
+from homeassistant.util import ulid
 from .ai_request import send_ai_request
 from .intents import IntentHandler, extract_intent_info
-from homeassistant.util import ulid
 from .const import (
     CONF_CHAT_MODEL,
     CONF_MAX_TOKENS,
@@ -33,6 +36,11 @@ from .const import (
     CONF_COOLDOWN_PERIOD,
     DEFAULT_MAX_TOOL_ITERATIONS,
     DEFAULT_COOLDOWN_PERIOD,
+    LOGGER,
+    CONF_HISTORY_ANALYSIS,
+    CONF_HISTORY_ENTITIES,
+    CONF_HISTORY_DAYS,
+    DEFAULT_HISTORY_DAYS,
 )
 
 
@@ -311,6 +319,51 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                 )
             ]
 
+            if self.entry.options.get(CONF_HISTORY_ANALYSIS):
+                entities = self.entry.options.get(CONF_HISTORY_ENTITIES, [])
+                days = self.entry.options.get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
+                
+                if entities:
+                    end_time = datetime.now()
+                    start_time = end_time - timedelta(days=days)
+                    
+                    history_text = []
+                    history_text.append(f"\n以下是询问者所关注的实体的历史数据分析（{days}天内）：")
+                    
+                    instance = get_instance(self.hass)
+                    history_data = await instance.async_add_executor_job(
+                        get_significant_states,
+                        self.hass,
+                        start_time,
+                        end_time,
+                        entities,
+                        None,
+                        True,
+                        True
+                    )
+
+                    for entity_id in entities:
+                        state = self.hass.states.get(entity_id)
+                        if state is None:
+                            continue
+                            
+                        if entity_id in history_data:
+                            states = history_data[entity_id]
+                            history_text.append(f"\n{entity_id}:")
+                            for state in states:
+                                if state is None:
+                                    continue
+                                history_text.append(
+                                    f"- {state.state} ({state.last_updated.strftime('%Y-%m-%d %H:%M:%S')})"
+                                )
+                        else:
+                            history_text.append(f"\n{entity_id} (当前状态):")
+                            history_text.append(
+                                f"- {state.state} ({state.last_updated.strftime('%Y-%m-%d %H:%M:%S')})"
+                            )
+                    
+                    prompt_parts.append("\n".join(history_text))
+
         except template.TemplateError as err:
             content_message = f"抱歉，我的模板有问题： {err}"
             filtered_content = self._filter_response_content(content_message)
@@ -321,6 +374,8 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
             prompt_parts.append(self.llm_api.api_prompt)
 
         prompt = "\n".join(prompt_parts)
+        LOGGER.info("Prompt Parts: %s", prompt_parts)
+        LOGGER.info("生成的 Prompt: %s", prompt)
 
         messages = [
             ChatCompletionMessageParam(role="system", content=prompt),
@@ -438,7 +493,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                     if isinstance(result, dict) and "error" not in result:
                         return result
                 except Exception as e:
-                    _LOGGER.warning("LLM API调用失败: %s", str(e))
+                    LOGGER.warning("LLM API调用失败: %s", str(e))
             
             if is_service_call(user_input):
                 service_info = extract_service_info(user_input, self.hass)

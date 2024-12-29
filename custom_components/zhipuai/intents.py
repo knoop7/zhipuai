@@ -1,6 +1,7 @@
 from __future__ import annotations
-import logging
 import re
+import os
+import yaml
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Set
 import voluptuous as vol
@@ -27,9 +28,13 @@ ERROR_NO_RESPONSE = "no_response"
 ERROR_SERVICE_CALL = "service_call_error"
 ERROR_NO_QUERY = "no_query"
 
-_LOGGER = logging.getLogger(__name__)
-
 async def async_setup_intents(hass: HomeAssistant) -> None:
+    yaml_path = os.path.join(os.path.dirname(__file__), "intents.yaml")
+    if os.path.exists(yaml_path):
+        with open(yaml_path, 'r', encoding='utf-8') as f:
+            intents_config = yaml.safe_load(f)
+            LOGGER.info("从 %s 加载的 intent 配置", yaml_path)
+    
     intent.async_register(hass, CameraAnalyzeIntent())
     intent.async_register(hass, WebSearchIntent())
 
@@ -38,13 +43,30 @@ class CameraAnalyzeIntent(intent.IntentHandler):
     intent_type = INTENT_CAMERA_ANALYZE
     slot_schema = {vol.Required("camera_name"): str, vol.Required("question"): str}
 
+    def __init__(self):
+        super().__init__()
+        yaml_path = os.path.join(os.path.dirname(__file__), "intents.yaml")
+        if os.path.exists(yaml_path):
+            with open(yaml_path, 'r', encoding='utf-8') as f:
+                self.config = yaml.safe_load(f).get(INTENT_CAMERA_ANALYZE, {})
+
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
         slots = self.async_validate_slots(intent_obj.slots)
+        camera_name = slots.get("camera_name", {}).get("value", "")
+        question = slots.get("question", {}).get("value", "")
+        
+        LOGGER.info("Camera analyze intent info - 原始插槽: %s", slots)
+        LOGGER.info("Camera analyze intent info - Camera: %s, Question: %s", camera_name, question)
+        
         target_camera = next((e for e in intent_obj.hass.states.async_all(camera.DOMAIN) 
-            if slots["camera_name"]["value"].lower() in (e.name.lower(), e.entity_id.lower())), None)
+            if camera_name.lower() in (e.name.lower(), e.entity_id.lower())), None)
         response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
-        return (self._set_error_response(response, ERROR_NO_CAMERA, f"找不到名为 {slots['camera_name']['value']} 的摄像头") 
-            if not target_camera else await self._handle_camera_analysis(intent_obj.hass, response, target_camera, slots["question"]["value"]))
+        
+        if self.config and "speech" in self.config:
+            response.async_set_speech(self.config["speech"]["text"])
+            
+        return (self._set_error_response(response, ERROR_NO_CAMERA, f"找不到名为 {camera_name} 的摄像头") 
+            if not target_camera else await self._handle_camera_analysis(intent_obj.hass, response, target_camera, question))
 
     async def _handle_camera_analysis(self, hass, response, target_camera, question) -> intent.IntentResponse:
         try:
@@ -58,7 +80,6 @@ class CameraAnalyzeIntent(intent.IntentHandler):
                 if result and isinstance(result, dict) else 
                 self._set_error_response(response, ERROR_NO_RESPONSE, "未能获取到有效的分析结果"))
         except Exception as e:
-            _LOGGER.error("Error calling image analyzer service: %s", str(e))
             return self._set_error_response(response, ERROR_SERVICE_CALL, f"服务调用出错：{str(e)}")
 
     def _set_error_response(self, response, code, message) -> intent.IntentResponse:
@@ -74,9 +95,19 @@ class WebSearchIntent(intent.IntentHandler):
     intent_type = INTENT_WEB_SEARCH
     slot_schema = {vol.Required("query"): str}
 
+    def __init__(self):
+        super().__init__()
+        yaml_path = os.path.join(os.path.dirname(__file__), "intents.yaml")
+        if os.path.exists(yaml_path):
+            with open(yaml_path, 'r', encoding='utf-8') as f:
+                self.config = yaml.safe_load(f).get(INTENT_WEB_SEARCH, {})
+
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
         slots = self.async_validate_slots(intent_obj.slots)
-        query = slots["query"]["value"]
+        query = slots.get("query", {}).get("value", "")
+        
+        LOGGER.info("Web 搜索 intent 信息 - 原始槽:%s", slots)
+        LOGGER.info("Web 搜索 意图 信息 - 提取的查询： %s", query)
         
         if not query:
             response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
@@ -90,6 +121,7 @@ class WebSearchIntent(intent.IntentHandler):
         response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
         
         try:
+            LOGGER.info("Web search service call - Query: %s", query)
             result = await hass.services.async_call(
                 DOMAIN,
                 "web_search",
@@ -102,6 +134,7 @@ class WebSearchIntent(intent.IntentHandler):
             )
             
             if result and isinstance(result, dict):
+                LOGGER.info("Web search result: %s", result)
                 if result.get("success", False):
                     return self._set_speech_response(response, result.get("message", ""))
                 return self._set_error_response(
@@ -122,6 +155,8 @@ class WebSearchIntent(intent.IntentHandler):
         return response
 
     def _set_speech_response(self, response, message) -> intent.IntentResponse:
+        if len(message.encode('utf-8')) > 12 * 1024:
+            message = message[:12 * 1024].rsplit(' ', 1)[0] + "..."
         response.async_set_speech(message)
         return response
 
