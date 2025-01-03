@@ -2,12 +2,15 @@
 
 ![GitHub Version]( https://img.shields.io/github/v/release/knoop7/zhipuai ) ![GitHub Issues]( https://img.shields.io/github/issues/knoop7/zhipuai ) ![GitHub Forks]( https://img.shields.io/github/forks/knoop7/zhipuai?style=social ) ![GitHub Stars]( https://img.shields.io/github/stars/knoop7/zhipuai?style=social )
 
+<a href="README.md">English</a> |  <a href="README-CN.md">简体中文</a> 
+
 
 ---
 ## Notice: This project is strictly prohibited from commercial use without permission. You may use it as a means of profit, but it cannot be concealed.
 ###  📦  Installation steps
 #### 1.  HACS adds custom repository
 In the HACS of Home Assistant, click on the three dots in the upper right corner, select "Custom Repository", and add the following URL:
+
 ```
 https://github.com/knoop7/zhipuai
 ```
