@@ -1,4 +1,4 @@
-# Zhipu Clear Words AI Home Assistant 🏡  
+# Zhipu Ai Words AI Home Assistant 🏡  
 
 ![GitHub Version]( https://img.shields.io/github/v/release/knoop7/zhipuai ) ![GitHub Issues]( https://img.shields.io/github/issues/knoop7/zhipuai ) ![GitHub Forks]( https://img.shields.io/github/forks/knoop7/zhipuai?style=social ) ![GitHub Stars]( https://img.shields.io/github/stars/knoop7/zhipuai?style=social )
 
