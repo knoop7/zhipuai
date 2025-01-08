@@ -5,7 +5,7 @@ blueprint:
     基于AI的安防事件摘要，适用于Frigate或摄像头实体。
     向您的手机发送带预览的通知，当AI分析完成后会动态更新。
   domain: automation
-  source_url: https://github.com/knoop7/zhipuai/blueprint/ai_event_summary.yaml
+  source_url: https://raw.githubusercontent.com/knoop7/zhipuai/refs/heads/v2025.01.09-dev/custom_components/zhipuai/blueprints/ai_event_summary.yaml
   input:
     mode:
       name: 模式
