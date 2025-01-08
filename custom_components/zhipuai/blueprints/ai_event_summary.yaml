@@ -279,19 +279,22 @@ max_exceeded: silent
 mode: single
 
 trigger:
-  - platform: mqtt
-    topic: "frigate/events"
-    id: frigate_trigger
+  - trigger:
+      - platform: mqtt
+        topic: "frigate/events"
+        id: frigate_trigger
     enabled: "{{ mode == 'Frigate' }}"
-  - platform: state
-    entity_id: !input camera_entities
-    to: !input trigger_state
-    id: camera_trigger
+  - trigger:
+      - platform: state
+        entity_id: !input camera_entities
+        to: !input trigger_state
+        id: camera_trigger
     enabled: "{{ mode == '摄像头' }}"
-  - platform: state
-    entity_id: !input motion_sensors
-    to: 'on'
-    id: motion_sensor_trigger
+  - trigger:
+      - platform: state
+        entity_id: !input motion_sensors
+        to: 'on'
+        id: motion_sensor_trigger
     enabled: "{{ mode == '摄像头' }}"
 
 condition:
