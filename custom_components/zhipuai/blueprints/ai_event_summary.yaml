@@ -220,11 +220,11 @@ action:
           - condition: template
             value_template: "{{ important }}"
         sequence:
-          - service: zhipuai.image_analyzer
+          - action: zhipuai.image_analyzer
             data:
               model: !input model
               message: "{{importance_prompt}}"
-              image_entity: "{{[camera_entity]}}"
+              image_entity: "{{camera_entity}}"
               temperature: !input temperature
               max_tokens: 3
             response_variable: importance
@@ -259,20 +259,13 @@ action:
                       interruption-level: "{{importance.response_text|lower if importance is defined else 'active'}}"
 
   - alias: "分析事件"
-    service: zhipuai.image_analyzer
+    action: zhipuai.image_analyzer
     data:
       model: !input model
       message: !input message
-      image_entity: "{{[camera_entity]}}"
-      duration: !input duration
-      remember: !input remember
-      generate_title: !input remember
-      max_frames: !input max_frames
-      target_width: !input target_width
-      max_tokens: !input max_tokens
+      image_entity: "{{camera_entity}}"
       temperature: !input temperature
-      expose_images: "{{true if preview_mode == '快照'}}"
-    response_variable: response
+      max_tokens: !input max_tokens
 
   - choose:
       - conditions:
