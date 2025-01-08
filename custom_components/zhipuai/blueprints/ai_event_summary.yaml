@@ -15,6 +15,15 @@ blueprint:
           options:
             - 'Frigate'
             - '摄像头'
+    detail:
+      name: 分析细节
+      description: 分析的细节程度（high更详细，low更快速）
+      default: 'low'
+      selector:
+        select:
+          options:
+            - 'high'
+            - 'low'
     important:
       name: 重要性过滤
       description: >
@@ -126,15 +135,6 @@ blueprint:
         number:
           min: 1
           max: 60
-    detail:
-      name: 分析细节
-      description: 分析的细节程度（high更详细，low更快速）
-      default: 'low'
-      selector:
-        select:
-          options:
-            - 'high'
-            - 'low'
     provider:
       name: 智谱AI
       description: 选择已配置的智谱AI
