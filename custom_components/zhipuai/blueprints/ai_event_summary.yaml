@@ -300,9 +300,10 @@ action:
                     data:
                       image_entity: "{{ ['camera.' + trigger.payload_json['after']['camera']|lower] }}"
                       model: "{{model}}"
-                      message: "{{message}}"
+                      message: "{{importance_prompt}}"
                       max_tokens: !input max_tokens
                       temperature: !input temperature
+                      detail: "{{ 'high' if detail == 'high' else 'low' }}"
                     response_variable: importance
               - conditions:
                   - condition: template
@@ -315,6 +316,7 @@ action:
                       message: "{{message}}"
                       max_tokens: !input max_tokens
                       temperature: !input temperature
+                      detail: "{{ 'high' if detail == 'high' else 'low' }}"
                     response_variable: importance
 
   - choose:
@@ -363,7 +365,7 @@ action:
               include_filename: true
               max_frames: !input max_frames
               target_width: !input target_width
-              detail: !input detail
+              detail: "{{ 'high' if detail == 'high' else 'low' }}"
               max_tokens: !input max_tokens
               temperature: !input temperature
             response_variable: response
@@ -382,7 +384,7 @@ action:
               include_filename: true
               max_frames: !input max_frames
               target_width: !input target_width
-              detail: !input detail
+              detail: "{{ 'high' if detail == 'high' else 'low' }}"
               max_tokens: !input max_tokens
               temperature: !input temperature
               expose_images: "{{true if preview_mode == '快照'}}"
