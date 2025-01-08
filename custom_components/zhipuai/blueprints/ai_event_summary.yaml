@@ -1,0 +1,428 @@
+blueprint:
+  name: AI事件摘要 (智谱AI视觉分析 GLM-4V-Flash)
+  author: knoop7
+  description: >
+    基于AI的安防事件摘要，适用于Frigate或摄像头实体。
+    向您的手机发送带预览的通知，当AI分析完成后会动态更新。
+  domain: automation
+  source_url: https://github.com/knoop7/zhipuai/blueprint/ai_event_summary.yaml
+  input:
+    mode:
+      name: 模式
+      description: 选择使用模式
+      selector:
+        select:
+          options:
+            - 'Frigate'
+            - '摄像头'
+    important:
+      name: 重要性过滤
+      description: >
+        使用AI将事件分类为"关键"、"普通"和"低重要性"。
+        仅当事件被分类为至少"普通"时才发送通知。
+        对于关键事件，即使在"勿扰模式"下也会发送通知。
+        请谨慎使用：AI可能会判断错误。
+      default: false
+      selector:
+        boolean:
+    remember:
+      name: 记住事件
+      description: 记住此事件以便稍后查询。需要配置事件日历。如果"重要性过滤"设置为true，则只记住被分类为"普通"或更高级别的事件。
+      default: false
+      selector:
+        boolean:
+    notify_device:
+      name: 通知设备
+      description: 要发送通知的设备。可以使用多个设备。仅适用于Home Assistant移动应用。
+      default: []
+      selector:
+        device:
+          multiple: true
+          filter:
+            integration: mobile_app
+    camera_entities:
+      name: 摄像头实体
+      description: >-
+        (适用于摄像头和Frigate模式)
+        要监控的摄像头实体列表
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: camera
+    object_type:
+      name: 包含的对象类型
+      description: >-
+        (仅Frigate模式)
+        仅当Frigate将对象标记为以下类型时运行（如：人、狗、鸟等）
+      default: []
+      selector:
+        text:
+          multiline: false
+          multiple: true
+    trigger_state:
+      name: 触发状态
+      description: >-
+        (仅摄像头模式)
+        当摄像头变为此状态时触发自动化。
+      default: 'recording'
+      selector:
+        text:
+          multiline: false
+    motion_sensors:
+      name: 移动传感器
+      description: >-
+        (仅摄像头模式)
+        如果您的摄像头不改变状态，请设置此项。使用与摄像头实体相同的顺序。
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: binary_sensor
+    preview_mode:
+      name: 预览模式
+      description: >-
+        (仅摄像头模式)
+        选择实时预览或事件快照
+      default: '实时预览'
+      selector:
+        select:
+          options:
+            - '实时预览'
+            - '快照'
+    cooldown:
+      name: 冷却时间
+      description: 再次运行前等待的分钟数。建议在繁忙区域使用。
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 60
+    tap_navigate:
+      name: 点击导航
+      description: >-
+        点击通知时导航到的路径（例如：/lovelace/cameras）。
+        要使用发送给AI引擎的相同输入，请使用：
+          `{{video if video != '''' else image}}`
+      default: "/lovelace/0"
+      selector:
+        text:
+          multiline: false
+    duration:
+      name: 持续时间
+      description: >-
+        (仅摄像头模式)
+        分析前录制的时长（秒）
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 60
+    max_frames:
+      name: 最大帧数
+      description: >-
+        (摄像头和Frigate模式)
+        要分析的帧数。选择运动最多的帧。
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 60
+    provider:
+      name: 提供商
+      description: 用于分析的提供商。查看文档获取更多信息。
+      selector:
+        config_entry:
+          integration: llmvision
+    model:
+      name: 模型
+      description: 用于视频分析的模型。选择合适的模型进行分析。
+      default: "glm-4v-flash"
+      selector:
+        select:
+          options:
+            - "glm-4v-flash"
+            - "glm-4v-plus"
+          multiple: false
+    message:
+      name: 提示词
+      description: 视频分析的模型提示词
+      default: "用一句话总结摄像头画面中发生了什么。不要描述场景！如果有人，描述他们在做什么和他们的样子。如果看起来像快递员就提到！如果什么都没发生，就说明。"
+      selector:
+        text:
+          multiline: true
+    target_width:
+      name: 目标宽度
+      description: 缩小图像尺寸（使用更少令牌并加快处理速度）
+      default: 1280
+      selector:
+        number:
+          min: 512
+          max: 3840
+    max_tokens:
+      name: 最大令牌数
+      description: 生成的最大令牌数。用于控制摘要长度。
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 100
+    detail:
+      name: 细节
+      description: 细节参数（仅OpenAI）
+      default: 'low'
+      selector:
+        select:
+          options:
+            - 'high'
+            - 'low'
+    temperature:
+      name: 温度
+      description: 随机性。较低更准确，较高更有创造性。
+      default: 0.1
+      selector:
+        number:
+          min: 0.1
+          max: 1.0
+          step: 0.1
+
+variables:
+  important: !input important
+  cooldown: !input cooldown
+  mode: !input mode
+  preview_mode: !input preview_mode
+  notify_devices: !input notify_device
+  device_name_map: >
+    {% set ns = namespace(device_names=[]) %}
+    {% for device_id in notify_devices %}
+      {% set device_name = device_attr(device_id, "name") %}
+      {% set sanitized_name = "mobile_app_" + device_name | slugify  %}
+      {% set ns.device_names = ns.device_names + [sanitized_name] %}
+    {% endfor %}
+    {{ ns.device_names }}
+  camera_entities_list: !input camera_entities
+  object_types_list: !input object_type
+  motion_sensors_list: !input motion_sensors
+  camera_entity: >
+    {% if mode == '摄像头' %}
+      {% if motion_sensors_list and not "camera" in trigger.entity_id %}
+        {% set index = motion_sensors_list.index(trigger.entity_id) %}
+        {{ camera_entities_list[index] }}
+      {% else %}
+        {{ trigger.entity_id }}
+      {% endif %}
+    {% else %}
+      {{ trigger.payload_json['after']['camera'] }}
+    {% endif %}
+  tag: >
+    {% if mode == 'Frigate' %}
+      {{ trigger.payload_json['after']['camera'] + int(as_timestamp(now()))|string }}
+    {% else %}
+      {{ camera_entity + int(as_timestamp(now()))|string }}
+    {% endif %}
+  group: >
+    {% if mode == 'Frigate' %}
+      {{ trigger.payload_json['after']['camera'] }}
+    {% else %}
+      {{ camera_entity }}
+    {% endif %}
+  label: >
+    {% if mode == 'Frigate' %}
+      发现{{ trigger.payload_json['after']['label']|capitalize }}
+    {% else %}
+      检测到移动
+    {% endif %}
+  camera: >
+    {% if mode == 'Frigate' %}
+      {{ trigger.payload_json['after']['camera'].replace('_', ' ')|capitalize }}
+    {% else %}
+      {{ camera_entity.replace("camera.", "").replace("_", " ")|capitalize }}
+    {% endif %}
+  video: >
+    {% if mode == 'Frigate' %}
+      /api/frigate/notifications/{{ trigger.payload_json['after']['id'] }}/clip.mp4
+    {% else %} {% endif %}
+  image: >
+    {% if mode == 'Frigate' %}
+      ''
+    {% else %}
+      {% if preview_mode == '实时预览' %}
+        {{ '/api/camera_proxy/' + camera_entity }}
+      {% else %}
+        /local/llmvision/{{camera_entity.replace("camera.", "")}}_0.jpg
+      {% endif %}
+    {% endif %}
+  importance_prompt: >
+    您的任务是根据监控画面对安防事件进行分类。选项："passive"表示事件不重要，"time-sensitive"表示重要，"critical"表示可疑事件。
+    仅在可能发生入室盗窃等类似事件时使用"critical"。"time-sensitive"可能是快递员在门口或类似重要性的事件。
+    请严格使用这些回复。
+
+max_exceeded: silent
+
+mode: single
+
+trigger:
+  - platform: mqtt
+    topic: "frigate/events"
+    id: frigate_trigger
+  - platform: 'state'
+    entity_id: !input camera_entities
+    to: !input trigger_state
+    id: 'camera_trigger'
+  - platform: 'state'
+    entity_id: !input motion_sensors
+    to: 'on'
+    id: 'motion_sensor_trigger'
+
+condition:
+  - condition: template
+    value_template: >
+      {% if mode == 'Frigate' %}
+        {{ trigger.payload_json["type"] == "end"
+           and ('camera.' + trigger.payload_json['after']['camera']|lower) in camera_entities_list
+           and ((object_types_list|length) == 0 or ((trigger.payload_json['after']['label']|lower) in object_types_list))
+        }}
+      {%else%}
+        true
+      {% endif %}
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ important }}"
+        sequence:
+          - alias: "判断重要性"
+            choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ mode == 'Frigate'}}"
+                sequence:
+                  - action: llmvision.image_analyzer
+                    data:
+                      image_entity: "{{ ['camera.' + trigger.payload_json['after']['camera']|lower] }}"
+                      provider: !input provider
+                      model: !input model
+                      message: "{{importance_prompt}}"
+                      include_filename: true
+                      target_width: 1280
+                      detail: low
+                      max_tokens: 3
+                      temperature: 0.1
+                    response_variable: importance
+              - conditions:
+                  - condition: template
+                    value_template: "{{ mode == '摄像头' }}"
+                sequence:
+                  - action: llmvision.image_analyzer
+                    data:
+                      image_entity: "{{[camera_entity]}}"
+                      provider: !input provider
+                      model: !input model
+                      message: "{{importance_prompt}}"
+                      include_filename: true
+                      target_width: 1280
+                      detail: low
+                      max_tokens: 3
+                      temperature: 0.1
+                    response_variable: importance
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ importance is defined and importance.response_text|lower == 'passive' }}"
+        sequence:
+          - stop: "事件不重要"
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ image != '' or video != '' }}"
+        sequence:
+          - alias: "向通知设备发送即时通知"
+            repeat:
+              for_each: "{{device_name_map}}"
+              sequence:
+                - action: "notify.{{ repeat.item }}"
+                  data:
+                    title: "{{ label }}"
+                    message: "{{camera}}"
+                    data:
+                      video: "{{video if video != '' else None}}"
+                      image: "{{image if image != '' else None}}"
+                      entity_id: "{{camera_entity if mode=='摄像头' and preview_mode=='实时预览'}}"
+                      url: !input tap_navigate 
+                      clickAction: !input tap_navigate 
+                      tag: "{{tag}}"
+                      group: "{{group}}"
+                      interruption-level: "{{importance.response_text|lower if importance is defined else 'active'}}"
+
+  - alias: "分析事件"
+    choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ mode == 'Frigate' }}"
+        sequence:
+          - action: llmvision.video_analyzer
+            data:
+              event_id: "{{ trigger.payload_json['after']['id'] }}"
+              provider: !input provider
+              model: !input model
+              message: !input message
+              remember: !input remember
+              generate_title: !input remember
+              include_filename: true
+              max_frames: !input max_frames
+              target_width: !input target_width
+              detail: !input detail
+              max_tokens: !input max_tokens
+              temperature: !input temperature
+            response_variable: response
+      - conditions:
+          - condition: template
+            value_template: "{{ mode == '摄像头' }}"
+        sequence:
+          - action: llmvision.stream_analyzer
+            data:
+              image_entity: "{{[camera_entity]}}"
+              duration: !input duration
+              provider: !input provider
+              model: !input model
+              message: !input message
+              remember: !input remember
+              generate_title: !input remember
+              include_filename: true
+              max_frames: !input max_frames
+              target_width: !input target_width
+              detail: !input detail
+              max_tokens: !input max_tokens
+              temperature: !input temperature
+              expose_images: "{{true if preview_mode == '快照'}}"
+            response_variable: response
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ image != '' or video != '' }}"
+        sequence:
+          - alias: "向通知设备发送即时通知"
+            repeat:
+              for_each: "{{device_name_map}}"
+              sequence:
+                - action: "notify.{{ repeat.item }}"
+                  data:
+                    title: "{{ label }}"
+                    message: "{{response.response_text}}"
+                    data:
+                      video: "{{video if video != '' else None}}"
+                      image: "{{image if image != '' else None}}"
+                      entity_id: "{{camera_entity if mode=='摄像头' and preview_mode=='实时预览'}}"
+                      url: !input tap_navigate 
+                      clickAction: !input tap_navigate 
+                      tag: "{{tag}}"
+                      group: "{{group}}"
+                      interruption-level: passive
+
+  - delay: '00:{{cooldown|int}}:00'
