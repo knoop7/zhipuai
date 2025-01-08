@@ -205,11 +205,9 @@ trigger:
   - platform: state
     entity_id: !input camera_entities
     to: !input trigger_state
-    id: camera_trigger
   - platform: state
     entity_id: !input motion_sensors
-    to: 'on'
-    id: motion_sensor_trigger
+    to: "on"
 
 condition:
   - condition: template
