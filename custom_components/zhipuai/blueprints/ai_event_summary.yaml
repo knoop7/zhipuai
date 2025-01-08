@@ -2,7 +2,7 @@ blueprint:
   name: AI事件摘要 (智谱AI视觉分析 Plus)
   author: knoop7
   description: >
-    基于AI的安防事件摘要，适用于Frigate或摄像头实体。
+    基于智谱AI的摄像头事件分析，可以智能分析摄像头画面并生成事件摘要。
     向您的手机发送带预览的通知，当AI分析完成后会动态更新。
   domain: automation
   source_url: https://raw.githubusercontent.com/knoop7/zhipuai/refs/heads/v2025.01.09-dev/custom_components/zhipuai/blueprints/ai_event_summary.yaml
@@ -10,10 +10,10 @@ blueprint:
     mode:
       name: 监控来源
       description: 选择您使用的监控系统类型
+      default: '摄像头'
       selector:
         select:
           options:
-            - 'Frigate'
             - '摄像头'
     important:
       name: 重要性过滤
@@ -40,42 +40,19 @@ blueprint:
           multiple: true
           filter:
             integration: mobile_app
-    frigate_cameras:
-      name: Frigate摄像头
-      description: >-
-        (仅Frigate模式)
-        要监控的Frigate摄像头实体列表
-      default: []
-      selector:
-        entity:
-          multiple: true
-          filter:
-            domain: camera
     camera_entities:
       name: 要监控的摄像头
       description: >-
-        (仅摄像头模式)
-        要监控的普通摄像头实体列表
+        要监控的摄像头实体列表
       default: []
       selector:
         entity:
           multiple: true
           filter:
             domain: camera
-    object_type:
-      name: 包含的对象类型
-      description: >-
-        (仅Frigate模式)
-        仅当Frigate将对象标记为以下类型时运行（如：人、狗、鸟等）
-      default: []
-      selector:
-        text:
-          multiline: false
-          multiple: true
     trigger_state:
       name: 触发状态
       description: >-
-        (仅摄像头模式)
         当摄像头变为此状态时触发自动化。
       default: 'recording'
       selector:
@@ -84,7 +61,6 @@ blueprint:
     motion_sensors:
       name: 移动传感器
       description: >-
-        (仅摄像头模式)
         如果您的摄像头不改变状态，请设置此项。使用与摄像头实体相同的顺序。
       default: []
       selector:
@@ -95,7 +71,6 @@ blueprint:
     preview_mode:
       name: 预览模式
       description: >-
-        (仅摄像头模式)
         选择实时预览或事件快照
       default: '实时预览'
       selector:
@@ -124,7 +99,6 @@ blueprint:
     duration:
       name: 持续时间
       description: >-
-        (仅摄像头模式)
         分析前录制的时长（秒）
       default: 5
       selector:
@@ -134,7 +108,6 @@ blueprint:
     max_frames:
       name: 最大帧数
       description: >-
-        (摄像头和Frigate模式)
         要分析的帧数。选择运动最多的帧。
       default: 3
       selector:
@@ -182,15 +155,6 @@ blueprint:
           min: 0.1
           max: 1.0
           step: 0.1
-    detail:
-      name: 细节
-      description: 细节参数
-      default: 'low'
-      selector:
-        select:
-          options:
-            - 'high'
-            - 'low'
 
 variables:
   important: !input important
@@ -207,66 +171,36 @@ variables:
       {% set ns.device_names = ns.device_names + [sanitized_name] %}
     {% endfor %}
     {{ ns.device_names }}
-  frigate_cameras_list: !input frigate_cameras
   camera_entities_list: !input camera_entities
-  object_types_list: !input object_type
   motion_sensors_list: !input motion_sensors
   camera_entity: >
-    {% if mode == '摄像头' %}
-      {% if motion_sensors_list and trigger is defined and trigger.platform == 'state' %}
-        {% if motion_sensors_list and trigger.entity_id in motion_sensors_list %}
-          {% set index = motion_sensors_list.index(trigger.entity_id) %}
-          {{ camera_entities_list[index] if index < camera_entities_list|length else camera_entities_list[0] }}
-        {% else %}
-          {{ trigger.entity_id }}
-        {% endif %}
+    {% if motion_sensors_list and trigger is defined and trigger.platform == 'state' %}
+      {% if motion_sensors_list and trigger.entity_id in motion_sensors_list %}
+        {% set index = motion_sensors_list.index(trigger.entity_id) %}
+        {{ camera_entities_list[index] if index < camera_entities_list|length else camera_entities_list[0] }}
       {% else %}
-        {{ camera_entities_list[0] if camera_entities_list else '' }}
+        {{ trigger.entity_id }}
       {% endif %}
     {% else %}
-      {{ trigger.payload_json['after']['camera'] if trigger is defined and trigger.payload_json is defined else '' }}
+      {{ camera_entities_list[0] if camera_entities_list else '' }}
     {% endif %}
   tag: >
-    {% if mode == 'Frigate' %}
-      {{ trigger.payload_json['after']['camera'] + int(as_timestamp(now()))|string }}
-    {% else %}
-      {{ camera_entity + int(as_timestamp(now()))|string }}
-    {% endif %}
+    {{ camera_entity + int(as_timestamp(now()))|string }}
   group: >
-    {% if mode == 'Frigate' %}
-      {{ trigger.payload_json['after']['camera'] }}
-    {% else %}
-      {{ camera_entity }}
-    {% endif %}
+    {{ camera_entity }}
   label: >
-    {% if mode == 'Frigate' %}
-      发现{{ trigger.payload_json['after']['label']|capitalize }}
-    {% else %}
-      检测到移动
-    {% endif %}
+    检测到移动
   camera: >
-    {% if mode == 'Frigate' %}
-      {{ trigger.payload_json['after']['camera'].replace('_', ' ')|capitalize }}
-    {% else %}
-      {{ camera_entity.replace("camera.", "").replace("_", " ")|capitalize }}
-    {% endif %}
-  video: >
-    {% if mode == 'Frigate' %}
-      /api/frigate/notifications/{{ trigger.payload_json['after']['id'] }}/clip.mp4
-    {% else %} {% endif %}
+    {{ camera_entity.replace("camera.", "").replace("_", " ")|capitalize }}
   image: >
-    {% if mode == 'Frigate' %}
-      ''
+    {% if preview_mode == '实时预览' %}
+      {{ '/api/camera_proxy/' + camera_entity }}
     {% else %}
-      {% if preview_mode == '实时预览' %}
-        {{ '/api/camera_proxy/' + camera_entity }}
+      {% set camera = camera_entity|default('') %}
+      {% if camera %}
+        /local/zhipuai/{{camera.replace("camera.", "")}}_0.jpg
       {% else %}
-        {% set camera = camera_entity|default('') %}
-        {% if camera %}
-          /local/zhipuai/{{camera.replace("camera.", "")}}_0.jpg
-        {% else %}
-          ''
-        {% endif %}
+        ''
       {% endif %}
     {% endif %}
   importance_prompt: >
@@ -274,49 +208,26 @@ variables:
     仅在可能发生入室盗窃等类似事件时使用"critical"。"time-sensitive"可能是快递员在门口或类似重要性的事件。
     请严格使用这些回复。
 
-max_exceeded: silent
-
 mode: single
 
 trigger:
-  - trigger:
-      - platform: mqtt
-        topic: "frigate/events"
-        id: frigate_trigger
-    enabled: "{{ mode == 'Frigate' }}"
   - trigger:
       - platform: state
         entity_id: !input camera_entities
         to: !input trigger_state
         id: camera_trigger
-    enabled: "{{ mode == '摄像头' }}"
+    enabled: true
   - trigger:
       - platform: state
         entity_id: !input motion_sensors
         to: 'on'
         id: motion_sensor_trigger
-    enabled: "{{ mode == '摄像头' }}"
+    enabled: true
 
 condition:
-  - condition: or
-    conditions:
-      - condition: and
-        conditions:
-          - condition: template
-            value_template: "{{ mode == 'Frigate' }}"
-          - condition: template
-            value_template: >
-              {{ trigger.payload_json["type"] == "end"
-                 and ('camera.' + trigger.payload_json['after']['camera']|lower) in frigate_cameras_list
-                 and ((object_types_list|length) == 0 or ((trigger.payload_json['after']['label']|lower) in object_types_list))
-              }}
-      - condition: and
-        conditions:
-          - condition: template
-            value_template: "{{ mode == '摄像头' }}"
-          - condition: template
-            value_template: >
-              {{ trigger.entity_id in camera_entities or trigger.entity_id in motion_sensors }}
+  - condition: template
+    value_template: >
+      {{ trigger.entity_id in camera_entities or trigger.entity_id in motion_sensors }}
 
 action:
   - choose:
@@ -324,32 +235,14 @@ action:
           - condition: template
             value_template: "{{ important }}"
         sequence:
-          - alias: "判断重要性"
-            choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ mode == 'Frigate'}}"
-                sequence:
-                  - service: zhipuai.image_analyzer
-                    data:
-                      model: !input model
-                      message: "{{importance_prompt}}"
-                      image_entity: "{{ ['camera.' + trigger.payload_json['after']['camera']|lower] }}"
-                      temperature: !input temperature
-                      max_tokens: 3
-                    response_variable: importance
-              - conditions:
-                  - condition: template
-                    value_template: "{{ mode == '摄像头' }}"
-                sequence:
-                  - service: zhipuai.image_analyzer
-                    data:
-                      model: !input model
-                      message: "{{importance_prompt}}"
-                      image_entity: "{{[camera_entity]}}"
-                      temperature: !input temperature
-                      max_tokens: 3
-                    response_variable: importance
+          - service: zhipuai.image_analyzer
+            data:
+              model: !input model
+              message: "{{importance_prompt}}"
+              image_entity: "{{[camera_entity]}}"
+              temperature: !input temperature
+              max_tokens: 3
+            response_variable: importance
 
   - choose:
       - conditions:
@@ -361,82 +254,59 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ image != '' or video != '' }}"
+            value_template: "{{ image != '' }}"
         sequence:
           - alias: "向通知设备发送即时通知"
             repeat:
               for_each: "{{device_name_map}}"
               sequence:
-                - action: "notify.{{ repeat.item }}"
+                - service: "notify.{{ repeat.item }}"
                   data:
                     title: "{{ label }}"
                     message: "{{camera}}"
                     data:
-                      video: "{{video if video != '' else None}}"
-                      image: "{{image if image != '' else None}}"
-                      entity_id: "{{camera_entity if mode=='摄像头' and preview_mode=='实时预览'}}"
-                      url: !input tap_navigate 
-                      clickAction: !input tap_navigate 
+                      image: "{{image}}"
+                      entity_id: "{{camera_entity if preview_mode=='实时预览'}}"
+                      url: !input tap_navigate
+                      clickAction: !input tap_navigate
                       tag: "{{tag}}"
                       group: "{{group}}"
                       interruption-level: "{{importance.response_text|lower if importance is defined else 'active'}}"
 
   - alias: "分析事件"
-    choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ mode == 'Frigate' }}"
-        sequence:
-          - service: zhipuai.video_analyzer
-            data:
-              model: !input model
-              message: !input message
-              event_id: "{{ trigger.payload_json['after']['id'] }}"
-              remember: !input remember
-              generate_title: !input remember
-              max_frames: !input max_frames
-              target_width: !input target_width
-              max_tokens: !input max_tokens
-              temperature: !input temperature
-            response_variable: response
-      - conditions:
-          - condition: template
-            value_template: "{{ mode == '摄像头' }}"
-        sequence:
-          - service: zhipuai.stream_analyzer
-            data:
-              model: !input model
-              message: !input message
-              image_entity: "{{[camera_entity]}}"
-              duration: !input duration
-              remember: !input remember
-              generate_title: !input remember
-              max_frames: !input max_frames
-              target_width: !input target_width
-              max_tokens: !input max_tokens
-              temperature: !input temperature
-              expose_images: "{{true if preview_mode == '快照'}}"
-            response_variable: response
+    service: zhipuai.stream_analyzer
+    data:
+      model: !input model
+      message: !input message
+      image_entity: "{{[camera_entity]}}"
+      duration: !input duration
+      remember: !input remember
+      generate_title: !input remember
+      max_frames: !input max_frames
+      target_width: !input target_width
+      max_tokens: !input max_tokens
+      temperature: !input temperature
+      expose_images: "{{true if preview_mode == '快照'}}"
+    response_variable: response
 
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ image != '' or video != '' }}"
+            value_template: "{{ image != '' }}"
         sequence:
           - alias: "向通知设备发送即时通知"
             repeat:
               for_each: "{{device_name_map}}"
               sequence:
-                - action: "notify.{{ repeat.item }}"
+                - service: "notify.{{ repeat.item }}"
                   data:
                     title: "{{ label }}"
                     message: "{{response.response_text}}"
                     data:
-                      video: "{{video if video != '' else None}}"
-                      image: "{{image if image != '' else None}}"
-                      entity_id: "{{camera_entity if mode=='摄像头' and preview_mode=='实时预览'}}"
-                      url: !input tap_navigate 
-                      clickAction: !input tap_navigate 
+                      image: "{{image}}"
+                      entity_id: "{{camera_entity if preview_mode=='实时预览'}}"
+                      url: !input tap_navigate
+                      clickAction: !input tap_navigate
                       tag: "{{tag}}"
                       group: "{{group}}"
                       interruption-level: passive
