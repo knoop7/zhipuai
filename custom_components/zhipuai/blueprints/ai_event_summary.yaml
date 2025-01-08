@@ -1,5 +1,5 @@
 blueprint:
-  name: AI事件摘要 (智谱AI视觉分析 Plus)
+  name: AI智能监控助手 (智谱AI视觉分析 Plus)
   author: knoop7
   description: >
     基于AI的安防事件摘要，适用于Frigate或摄像头实体。
@@ -8,8 +8,8 @@ blueprint:
   source_url: https://raw.githubusercontent.com/knoop7/zhipuai/refs/heads/v2025.01.09-dev/custom_components/zhipuai/blueprints/ai_event_summary.yaml
   input:
     mode:
-      name: 模式
-      description: 选择使用模式
+      name: 监控来源
+      description: 选择您使用的监控系统类型
       selector:
         select:
           options:
@@ -26,8 +26,8 @@ blueprint:
       selector:
         boolean:
     remember:
-      name: 记住事件
-      description: 记住此事件以便稍后查询。需要配置事件日历。如果"重要性过滤"设置为true，则只记住被分类为"普通"或更高级别的事件。
+      name: 记录历史
+      description: 保存事件记录，方便您之后查看和回顾。如果开启了智能过滤，只记录重要和普通事件。
       default: false
       selector:
         boolean:
@@ -41,7 +41,7 @@ blueprint:
           filter:
             integration: mobile_app
     camera_entities:
-      name: 摄像头实体
+      name: 要监控的摄像头
       description: >-
         (适用于摄像头和Frigate模式)
         要监控的摄像头实体列表
@@ -52,26 +52,26 @@ blueprint:
           filter:
             domain: camera
     object_type:
-      name: 包含的对象类型
+      name: 关注的目标
       description: >-
         (仅Frigate模式)
-        仅当Frigate将对象标记为以下类型时运行（如：人、狗、鸟等）
+        仅当Frigate将对象标记为以下类型时运行（如：人、狗、鸟、车等）
       default: []
       selector:
         text:
           multiline: false
           multiple: true
     trigger_state:
-      name: 触发状态
+      name: 触发条件
       description: >-
-        (仅摄像头模式)
-        当摄像头变为此状态时触发自动化。
+        （仅限普通摄像头）
+        在什么情况下开始分析，通常选择"recording"（录像时）
       default: 'recording'
       selector:
         text:
           multiline: false
     motion_sensors:
-      name: 移动传感器
+      name: 动态感应器
       description: >-
         (仅摄像头模式)
         如果您的摄像头不改变状态，请设置此项。使用与摄像头实体相同的顺序。
@@ -82,10 +82,9 @@ blueprint:
           filter:
             domain: binary_sensor
     preview_mode:
-      name: 预览模式
+      name: 预览方式
       description: >-
-        (仅摄像头模式)
-        选择实时预览或事件快照
+        选择通知中显示实时画面还是事件截图
       default: '实时预览'
       selector:
         select:
@@ -93,20 +92,17 @@ blueprint:
             - '实时预览'
             - '快照'
     cooldown:
-      name: 冷却时间
-      description: 再次运行前等待的分钟数。建议在繁忙区域使用。
+      name: 分析间隔
+      description: 两次分析之间至少间隔多少分钟（建议5-15分钟，避免太频繁打扰）
       default: 10
       selector:
         number:
           min: 0
           max: 60
     tap_navigate:
-      name: 点击导航
-      description: >-
-        点击通知时导航到的路径（例如：/lovelace/cameras）。
-        要使用发送给AI引擎的相同输入，请使用：
-          `{{video if video != '''' else image}}`
-      default: "/lovelace/0"
+      name: 点击跳转
+      description: 点击通知后跳转到哪个页面（比如摄像头页面：/lovelace/cameras）
+      default: "/lovelace/cameras"
       selector:
         text:
           multiline: false
@@ -131,14 +127,14 @@ blueprint:
           min: 1
           max: 60
     provider:
-      name: 提供商
-      description: 用于分析的提供商。查看文档获取更多信息。
+      name: 智谱AI
+      description: 选择已配置的智谱AI
       selector:
         config_entry:
-          integration: llmvision
+          integration: zhipuai
     model:
-      name: 模型
-      description: 用于视频分析的模型。选择合适的模型进行分析。
+      name: AI 模型
+      description: 选择要使用的AI模型（Flash免费，Plus效果更好）
       default: "glm-4v-flash"
       selector:
         select:
@@ -147,12 +143,52 @@ blueprint:
             - "glm-4v-plus"
           multiple: false
     message:
-      name: 提示词
-      description: 视频分析的模型提示词
-      default: "用一句话总结摄像头画面中发生了什么。不要描述场景！如果有人，描述他们在做什么和他们的样子。如果看起来像快递员就提到！如果什么都没发生，就说明。"
+      name: 分析要求
+      description: 告诉AI你想让它关注画面中的什么内容
+      default: "请分析画面中发生了什么，重点关注：1.是否有人 2.在做什么 3.穿着特征 4.是否可疑 5.是否有危险行为 6.是否有犯罪行为 7.是否有异常行为"
       selector:
         text:
           multiline: true
+      selector:
+        text:
+          multiline: true
+    max_tokens:
+      name: 回答详细度
+      description: 数字越大描述越详细，建议设为20（10-30之间最合适）
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 100
+    temperature:
+      name: 表达方式
+      description: 数字越小越严谨，越大越活泼（建议保持0.1不变）
+      default: 0.1
+      selector:
+        number:
+          min: 0.1
+          max: 1.0
+          step: 0.1
+    duration:
+      name: 分析时长
+      description: >-
+        （仅限普通摄像头）
+        分析前录制的时长（秒）
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 60
+    max_frames:
+      name: 最大帧数
+      description: >-
+        要分析的帧数。选择运动最多的帧。
+      default: 3
+      selector:
+        select:
+          options:
+            - 'high'
+            - 'low'
     target_width:
       name: 目标宽度
       description: 缩小图像尺寸（使用更少令牌并加快处理速度）
@@ -161,32 +197,6 @@ blueprint:
         number:
           min: 512
           max: 3840
-    max_tokens:
-      name: 最大令牌数
-      description: 生成的最大令牌数。用于控制摘要长度。
-      default: 20
-      selector:
-        number:
-          min: 1
-          max: 100
-    detail:
-      name: 细节
-      description: 细节参数（仅OpenAI）
-      default: 'low'
-      selector:
-        select:
-          options:
-            - 'high'
-            - 'low'
-    temperature:
-      name: 温度
-      description: 随机性。较低更准确，较高更有创造性。
-      default: 0.1
-      selector:
-        number:
-          min: 0.1
-          max: 1.0
-          step: 0.1
 
 variables:
   important: !input important
@@ -300,33 +310,25 @@ action:
                   - condition: template
                     value_template: "{{ mode == 'Frigate'}}"
                 sequence:
-                  - action: llmvision.image_analyzer
+                  - action: zhipuai.analyze_image
                     data:
                       image_entity: "{{ ['camera.' + trigger.payload_json['after']['camera']|lower] }}"
-                      provider: !input provider
-                      model: !input model
-                      message: "{{importance_prompt}}"
-                      include_filename: true
-                      target_width: 1280
-                      detail: low
-                      max_tokens: 3
-                      temperature: 0.1
+                      model: "{{model}}"
+                      message: "{{message}}"
+                      max_tokens: !input max_tokens
+                      temperature: !input temperature
                     response_variable: importance
               - conditions:
                   - condition: template
                     value_template: "{{ mode == '摄像头' }}"
                 sequence:
-                  - action: llmvision.image_analyzer
+                  - action: zhipuai.analyze_image
                     data:
                       image_entity: "{{[camera_entity]}}"
-                      provider: !input provider
-                      model: !input model
-                      message: "{{importance_prompt}}"
-                      include_filename: true
-                      target_width: 1280
-                      detail: low
-                      max_tokens: 3
-                      temperature: 0.1
+                      model: "{{model}}"
+                      message: "{{message}}"
+                      max_tokens: !input max_tokens
+                      temperature: !input temperature
                     response_variable: importance
 
   - choose:
@@ -365,11 +367,10 @@ action:
           - condition: template
             value_template: "{{ mode == 'Frigate' }}"
         sequence:
-          - action: llmvision.video_analyzer
+          - action: zhipuai.analyze_video
             data:
               event_id: "{{ trigger.payload_json['after']['id'] }}"
-              provider: !input provider
-              model: !input model
+              model: "{{model}}"
               message: !input message
               remember: !input remember
               generate_title: !input remember
@@ -384,12 +385,11 @@ action:
           - condition: template
             value_template: "{{ mode == '摄像头' }}"
         sequence:
-          - action: llmvision.stream_analyzer
+          - action: zhipuai.analyze_stream
             data:
               image_entity: "{{[camera_entity]}}"
               duration: !input duration
-              provider: !input provider
-              model: !input model
+              model: "{{model}}"
               message: !input message
               remember: !input remember
               generate_title: !input remember
