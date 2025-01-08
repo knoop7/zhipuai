@@ -1,5 +1,5 @@
 blueprint:
-  name: AI智能监控助手 (智谱AI视觉分析 Plus)
+  name: AI事件摘要 (智谱AI视觉分析 Plus)
   author: knoop7
   description: >
     基于AI的安防事件摘要，适用于Frigate或摄像头实体。
@@ -15,15 +15,6 @@ blueprint:
           options:
             - 'Frigate'
             - '摄像头'
-    detail:
-      name: 分析细节
-      description: 分析的细节程度（high更详细，low更快速）
-      default: 'low'
-      selector:
-        select:
-          options:
-            - 'high'
-            - 'low'
     important:
       name: 重要性过滤
       description: >
@@ -61,26 +52,26 @@ blueprint:
           filter:
             domain: camera
     object_type:
-      name: 关注的目标
+      name: 包含的对象类型
       description: >-
         (仅Frigate模式)
-        仅当Frigate将对象标记为以下类型时运行（如：人、狗、鸟、车等）
+        仅当Frigate将对象标记为以下类型时运行（如：人、狗、鸟等）
       default: []
       selector:
         text:
           multiline: false
           multiple: true
     trigger_state:
-      name: 触发条件
+      name: 触发状态
       description: >-
-        （仅限普通摄像头）
-        在什么情况下开始分析，通常选择"recording"（录像时）
+        (仅摄像头模式)
+        当摄像头变为此状态时触发自动化。
       default: 'recording'
       selector:
         text:
           multiline: false
     motion_sensors:
-      name: 动态感应器
+      name: 移动传感器
       description: >-
         (仅摄像头模式)
         如果您的摄像头不改变状态，请设置此项。使用与摄像头实体相同的顺序。
@@ -91,9 +82,10 @@ blueprint:
           filter:
             domain: binary_sensor
     preview_mode:
-      name: 预览方式
+      name: 预览模式
       description: >-
-        选择通知中显示实时画面还是事件截图
+        (仅摄像头模式)
+        选择实时预览或事件快照
       default: '实时预览'
       selector:
         select:
@@ -101,8 +93,8 @@ blueprint:
             - '实时预览'
             - '快照'
     cooldown:
-      name: 分析间隔
-      description: 两次分析之间至少间隔多少分钟（建议5-15分钟，避免太频繁打扰）
+      name: 等待时间
+      description: 两次分析之间需要等待的分钟数（建议5-15分钟）
       default: 10
       selector:
         number:
@@ -110,7 +102,7 @@ blueprint:
           max: 60
     tap_navigate:
       name: 点击跳转
-      description: 点击通知后跳转到哪个页面（比如摄像头页面：/lovelace/cameras）
+      description: 点击通知后跳转到的页面（例如：/lovelace/cameras）
       default: "/lovelace/cameras"
       selector:
         text:
@@ -142,42 +134,50 @@ blueprint:
         config_entry:
           integration: zhipuai
     model:
-      name: AI 模型
-      description: 选择要使用的AI模型（Flash免费，Plus效果更好）
+      name: 模型
+      description: 用于视频分析的模型。选择合适的模型进行分析。
       default: "glm-4v-flash"
       selector:
         select:
           options:
             - "glm-4v-flash"
             - "glm-4v-plus"
-          multiple: false
     message:
       name: 分析要求
       description: 告诉AI你想让它关注画面中的什么内容
-      default: "请分析画面中发生了什么，重点关注：1.是否有人 2.在做什么 3.穿着特征 4.是否可疑 5.是否有危险行为 6.是否有犯罪行为 7.是否有异常行为"
+      default: "请分析画面中发生了什么，重点关注：1.是否有人 2.在做什么 3.穿着特征 4.是否可疑 5.是否有危险"
       selector:
         text:
           multiline: true
     max_tokens:
-      name: 回答详细度
-      description: 数字越大描述越详细，建议设为20（10-30之间最合适）
+      name: 回答长度
+      description: 数字越大，AI的回答越详细（建议10-30之间）
       default: 20
       selector:
         number:
           min: 1
           max: 100
     temperature:
-      name: 表达方式
-      description: 数字越小越严谨，越大越活泼（建议保持0.1不变）
+      name: 回答随机性
+      description: 数字越小越严谨，越大越有创意（建议保持默认）
       default: 0.1
       selector:
         number:
           min: 0.1
           max: 1.0
           step: 0.1
+    detail:
+      name: 细节
+      description: 细节参数
+      default: 'low'
+      selector:
+        select:
+          options:
+            - 'high'
+            - 'low'
     target_width:
-      name: 图像尺寸
-      description: 分析用的图片宽度（越小越快，但可能影响效果）
+      name: 目标宽度
+      description: 缩小图像尺寸（使用更少令牌并加快处理速度）
       default: 1280
       selector:
         number:
@@ -247,7 +247,7 @@ variables:
       {% if preview_mode == '实时预览' %}
         {{ '/api/camera_proxy/' + camera_entity }}
       {% else %}
-        /local/llmvision/{{camera_entity.replace("camera.", "")}}_0.jpg
+        /local/zhipuai/{{camera_entity.replace("camera.", "")}}_0.jpg
       {% endif %}
     {% endif %}
   importance_prompt: >
@@ -300,10 +300,9 @@ action:
                     data:
                       image_entity: "{{ ['camera.' + trigger.payload_json['after']['camera']|lower] }}"
                       model: "{{model}}"
-                      message: "{{importance_prompt}}"
+                      message: "{{message}}"
                       max_tokens: !input max_tokens
                       temperature: !input temperature
-                      detail: "{{ 'high' if detail == 'high' else 'low' }}"
                     response_variable: importance
               - conditions:
                   - condition: template
@@ -316,7 +315,6 @@ action:
                       message: "{{message}}"
                       max_tokens: !input max_tokens
                       temperature: !input temperature
-                      detail: "{{ 'high' if detail == 'high' else 'low' }}"
                     response_variable: importance
 
   - choose:
@@ -365,7 +363,7 @@ action:
               include_filename: true
               max_frames: !input max_frames
               target_width: !input target_width
-              detail: "{{ 'high' if detail == 'high' else 'low' }}"
+              detail: !input detail
               max_tokens: !input max_tokens
               temperature: !input temperature
             response_variable: response
@@ -384,7 +382,7 @@ action:
               include_filename: true
               max_frames: !input max_frames
               target_width: !input target_width
-              detail: "{{ 'high' if detail == 'high' else 'low' }}"
+              detail: !input detail
               max_tokens: !input max_tokens
               temperature: !input temperature
               expose_images: "{{true if preview_mode == '快照'}}"
