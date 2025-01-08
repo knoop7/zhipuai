@@ -1,5 +1,5 @@
 blueprint:
-  name: AI事件摘要 (智谱AI视觉分析 GLM-4V-Flash)
+  name: AI事件摘要 (智谱AI视觉分析 Plus)
   author: knoop7
   description: >
     基于AI的安防事件摘要，适用于Frigate或摄像头实体。
