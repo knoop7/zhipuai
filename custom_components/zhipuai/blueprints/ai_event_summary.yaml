@@ -245,7 +245,7 @@ action:
             repeat:
               for_each: "{{device_name_map}}"
               sequence:
-                - service: "notify.{{ repeat.item }}"
+                - service: "mobile_app.notify_{{ repeat.item }}"
                   data:
                     title: "{{ label }}"
                     message: "{{camera}}"
@@ -259,7 +259,7 @@ action:
                       interruption-level: "{{importance.response_text|lower if importance is defined else 'active'}}"
 
   - alias: "分析事件"
-    service: zhipuai.stream_analyzer
+    service: zhipuai.image_analyzer
     data:
       model: !input model
       message: !input message
@@ -283,7 +283,7 @@ action:
             repeat:
               for_each: "{{device_name_map}}"
               sequence:
-                - service: "notify.{{ repeat.item }}"
+                - service: "mobile_app.notify_{{ repeat.item }}"
                   data:
                     title: "{{ label }}"
                     message: "{{response.response_text}}"
