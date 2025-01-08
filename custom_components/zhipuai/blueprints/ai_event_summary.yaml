@@ -51,7 +51,6 @@ blueprint:
           multiple: true
           filter:
             domain: camera
-            integration: frigate
     camera_entities:
       name: 要监控的摄像头
       description: >-
@@ -105,17 +104,20 @@ blueprint:
             - '实时预览'
             - '快照'
     cooldown:
-      name: 等待时间
-      description: 两次分析之间需要等待的分钟数（建议5-15分钟）
+      name: 冷却时间
+      description: 再次运行前等待的分钟数。建议在繁忙区域使用。
       default: 10
       selector:
         number:
           min: 0
           max: 60
     tap_navigate:
-      name: 点击跳转
-      description: 点击通知后跳转到的页面（例如：/lovelace/cameras）
-      default: "/lovelace/cameras"
+      name: 点击导航
+      description: >-
+        点击通知时导航到的路径（例如：/lovelace/cameras）。
+        要使用发送给AI引擎的相同输入，请使用：
+          `{{video if video != '''' else image}}`
+      default: "/lovelace/0"
       selector:
         text:
           multiline: false
@@ -139,12 +141,6 @@ blueprint:
         number:
           min: 1
           max: 60
-    provider:
-      name: 智谱AI
-      description: 选择已配置的智谱AI
-      selector:
-        config_entry:
-          integration: zhipuai
     model:
       name: 模型
       description: 用于视频分析的模型。选择合适的模型进行分析。
@@ -161,17 +157,25 @@ blueprint:
       selector:
         text:
           multiline: true
+    target_width:
+      name: 目标宽度
+      description: 缩小图像尺寸（使用更少令牌并加快处理速度）
+      default: 1280
+      selector:
+        number:
+          min: 512
+          max: 3840
     max_tokens:
-      name: 回答长度
-      description: 数字越大，AI的回答越详细（建议10-30之间）
+      name: 最大令牌数
+      description: 生成的最大令牌数。用于控制摘要长度。
       default: 20
       selector:
         number:
           min: 1
           max: 100
     temperature:
-      name: 回答随机性
-      description: 数字越小越严谨，越大越有创意（建议保持默认）
+      name: 温度
+      description: 随机性。较低更准确，较高更有创造性。
       default: 0.1
       selector:
         number:
@@ -187,14 +191,6 @@ blueprint:
           options:
             - 'high'
             - 'low'
-    target_width:
-      name: 目标宽度
-      description: 缩小图像尺寸（使用更少令牌并加快处理速度）
-      default: 1280
-      selector:
-        number:
-          min: 512
-          max: 3840
 
 variables:
   important: !input important
@@ -336,25 +332,25 @@ action:
                   - condition: template
                     value_template: "{{ mode == 'Frigate'}}"
                 sequence:
-                  - action: zhipuai.analyze_image
+                  - service: zhipuai.image_analyzer
                     data:
-                      image_entity: "{{ ['camera.' + trigger.payload_json['after']['camera']|lower] }}"
-                      model: "{{model}}"
+                      model: !input model
                       message: "{{importance_prompt}}"
-                      max_tokens: !input max_tokens
+                      image_entity: "{{ ['camera.' + trigger.payload_json['after']['camera']|lower] }}"
                       temperature: !input temperature
+                      max_tokens: 3
                     response_variable: importance
               - conditions:
                   - condition: template
                     value_template: "{{ mode == '摄像头' }}"
                 sequence:
-                  - action: zhipuai.analyze_image
+                  - service: zhipuai.image_analyzer
                     data:
-                      image_entity: "{{[camera_entity]}}"
-                      model: "{{model}}"
+                      model: !input model
                       message: "{{importance_prompt}}"
-                      max_tokens: !input max_tokens
+                      image_entity: "{{[camera_entity]}}"
                       temperature: !input temperature
+                      max_tokens: 3
                     response_variable: importance
 
   - choose:
@@ -393,17 +389,15 @@ action:
           - condition: template
             value_template: "{{ mode == 'Frigate' }}"
         sequence:
-          - action: zhipuai.analyze_video
+          - service: zhipuai.video_analyzer
             data:
-              event_id: "{{ trigger.payload_json['after']['id'] }}"
-              model: "{{model}}"
+              model: !input model
               message: !input message
+              event_id: "{{ trigger.payload_json['after']['id'] }}"
               remember: !input remember
               generate_title: !input remember
-              include_filename: true
               max_frames: !input max_frames
               target_width: !input target_width
-              detail: !input detail
               max_tokens: !input max_tokens
               temperature: !input temperature
             response_variable: response
@@ -411,18 +405,16 @@ action:
           - condition: template
             value_template: "{{ mode == '摄像头' }}"
         sequence:
-          - action: zhipuai.analyze_stream
+          - service: zhipuai.stream_analyzer
             data:
+              model: !input model
+              message: !input message
               image_entity: "{{[camera_entity]}}"
               duration: !input duration
-              model: "{{model}}"
-              message: !input message
               remember: !input remember
               generate_title: !input remember
-              include_filename: true
               max_frames: !input max_frames
               target_width: !input target_width
-              detail: !input detail
               max_tokens: !input max_tokens
               temperature: !input temperature
               expose_images: "{{true if preview_mode == '快照'}}"
