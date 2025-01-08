@@ -279,43 +279,38 @@ max_exceeded: silent
 mode: single
 
 trigger:
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ mode == 'Frigate' }}"
-        sequence:
-          - platform: mqtt
-            topic: "frigate/events"
-            id: frigate_trigger
-      - conditions:
-          - condition: template
-            value_template: "{{ mode == '摄像头' }}"
-        sequence:
-          - platform: state
-            entity_id: !input camera_entities
-            to: !input trigger_state
-            id: camera_trigger
-          - platform: state
-            entity_id: !input motion_sensors
-            to: 'on'
-            id: motion_sensor_trigger
+  - platform: mqtt
+    topic: "frigate/events"
+    id: frigate_trigger
+    enabled: "{{ mode == 'Frigate' }}"
+  - platform: state
+    entity_id: !input camera_entities
+    to: !input trigger_state
+    id: camera_trigger
+    enabled: "{{ mode == '摄像头' }}"
+  - platform: state
+    entity_id: !input motion_sensors
+    to: 'on'
+    id: motion_sensor_trigger
+    enabled: "{{ mode == '摄像头' }}"
 
 condition:
-  - choose:
-      - conditions:
+  - condition: or
+    conditions:
+      - condition: and
+        conditions:
           - condition: template
             value_template: "{{ mode == 'Frigate' }}"
-        sequence:
           - condition: template
             value_template: >
               {{ trigger.payload_json["type"] == "end"
                  and ('camera.' + trigger.payload_json['after']['camera']|lower) in frigate_cameras_list
                  and ((object_types_list|length) == 0 or ((trigger.payload_json['after']['label']|lower) in object_types_list))
               }}
-      - conditions:
+      - condition: and
+        conditions:
           - condition: template
             value_template: "{{ mode == '摄像头' }}"
-        sequence:
           - condition: template
             value_template: >
               {{ trigger.entity_id in camera_entities or trigger.entity_id in motion_sensors }}
