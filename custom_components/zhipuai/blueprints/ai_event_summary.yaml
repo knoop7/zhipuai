@@ -7,14 +7,6 @@ blueprint:
   domain: automation
   source_url: https://raw.githubusercontent.com/knoop7/zhipuai/refs/heads/v2025.01.09-dev/custom_components/zhipuai/blueprints/ai_event_summary.yaml
   input:
-    mode:
-      name: 监控来源
-      description: 选择您使用的监控系统类型
-      default: '摄像头'
-      selector:
-        select:
-          options:
-            - '摄像头'
     important:
       name: 重要性过滤
       description: >
@@ -159,7 +151,6 @@ blueprint:
 variables:
   important: !input important
   cooldown: !input cooldown
-  mode: !input mode
   preview_mode: !input preview_mode
   notify_devices: !input notify_device
   model: !input model
@@ -211,18 +202,14 @@ variables:
 mode: single
 
 trigger:
-  - trigger:
-      - platform: state
-        entity_id: !input camera_entities
-        to: !input trigger_state
-        id: camera_trigger
-    enabled: true
-  - trigger:
-      - platform: state
-        entity_id: !input motion_sensors
-        to: 'on'
-        id: motion_sensor_trigger
-    enabled: true
+  - platform: state
+    entity_id: !input camera_entities
+    to: !input trigger_state
+    id: camera_trigger
+  - platform: state
+    entity_id: !input motion_sensors
+    to: 'on'
+    id: motion_sensor_trigger
 
 condition:
   - condition: template
