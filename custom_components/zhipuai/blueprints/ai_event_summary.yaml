@@ -40,11 +40,23 @@ blueprint:
           multiple: true
           filter:
             integration: mobile_app
+    frigate_cameras:
+      name: Frigate摄像头
+      description: >-
+        (仅Frigate模式)
+        要监控的Frigate摄像头实体列表
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: camera
+            integration: frigate
     camera_entities:
       name: 要监控的摄像头
       description: >-
-        (适用于摄像头和Frigate模式)
-        要监控的摄像头实体列表
+        (仅摄像头模式)
+        要监控的普通摄像头实体列表
       default: []
       selector:
         entity:
@@ -190,6 +202,7 @@ variables:
   mode: !input mode
   preview_mode: !input preview_mode
   notify_devices: !input notify_device
+  model: !input model
   device_name_map: >
     {% set ns = namespace(device_names=[]) %}
     {% for device_id in notify_devices %}
@@ -198,19 +211,24 @@ variables:
       {% set ns.device_names = ns.device_names + [sanitized_name] %}
     {% endfor %}
     {{ ns.device_names }}
+  frigate_cameras_list: !input frigate_cameras
   camera_entities_list: !input camera_entities
   object_types_list: !input object_type
   motion_sensors_list: !input motion_sensors
   camera_entity: >
     {% if mode == '摄像头' %}
-      {% if motion_sensors_list and not "camera" in trigger.entity_id %}
-        {% set index = motion_sensors_list.index(trigger.entity_id) %}
-        {{ camera_entities_list[index] }}
+      {% if motion_sensors_list and trigger is defined and trigger.platform == 'state' %}
+        {% if motion_sensors_list and trigger.entity_id in motion_sensors_list %}
+          {% set index = motion_sensors_list.index(trigger.entity_id) %}
+          {{ camera_entities_list[index] if index < camera_entities_list|length else camera_entities_list[0] }}
+        {% else %}
+          {{ trigger.entity_id }}
+        {% endif %}
       {% else %}
-        {{ trigger.entity_id }}
+        {{ camera_entities_list[0] if camera_entities_list else '' }}
       {% endif %}
     {% else %}
-      {{ trigger.payload_json['after']['camera'] }}
+      {{ trigger.payload_json['after']['camera'] if trigger is defined and trigger.payload_json is defined else '' }}
     {% endif %}
   tag: >
     {% if mode == 'Frigate' %}
@@ -247,7 +265,12 @@ variables:
       {% if preview_mode == '实时预览' %}
         {{ '/api/camera_proxy/' + camera_entity }}
       {% else %}
-        /local/zhipuai/{{camera_entity.replace("camera.", "")}}_0.jpg
+        {% set camera = camera_entity|default('') %}
+        {% if camera %}
+          /local/zhipuai/{{camera.replace("camera.", "")}}_0.jpg
+        {% else %}
+          ''
+        {% endif %}
       {% endif %}
     {% endif %}
   importance_prompt: >
@@ -260,29 +283,46 @@ max_exceeded: silent
 mode: single
 
 trigger:
-  - platform: mqtt
-    topic: "frigate/events"
-    id: frigate_trigger
-  - platform: 'state'
-    entity_id: !input camera_entities
-    to: !input trigger_state
-    id: 'camera_trigger'
-  - platform: 'state'
-    entity_id: !input motion_sensors
-    to: 'on'
-    id: 'motion_sensor_trigger'
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ mode == 'Frigate' }}"
+        sequence:
+          - platform: mqtt
+            topic: "frigate/events"
+            id: frigate_trigger
+      - conditions:
+          - condition: template
+            value_template: "{{ mode == '摄像头' }}"
+        sequence:
+          - platform: state
+            entity_id: !input camera_entities
+            to: !input trigger_state
+            id: camera_trigger
+          - platform: state
+            entity_id: !input motion_sensors
+            to: 'on'
+            id: motion_sensor_trigger
 
 condition:
-  - condition: template
-    value_template: >
-      {% if mode == 'Frigate' %}
-        {{ trigger.payload_json["type"] == "end"
-           and ('camera.' + trigger.payload_json['after']['camera']|lower) in camera_entities_list
-           and ((object_types_list|length) == 0 or ((trigger.payload_json['after']['label']|lower) in object_types_list))
-        }}
-      {%else%}
-        true
-      {% endif %}
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ mode == 'Frigate' }}"
+        sequence:
+          - condition: template
+            value_template: >
+              {{ trigger.payload_json["type"] == "end"
+                 and ('camera.' + trigger.payload_json['after']['camera']|lower) in frigate_cameras_list
+                 and ((object_types_list|length) == 0 or ((trigger.payload_json['after']['label']|lower) in object_types_list))
+              }}
+      - conditions:
+          - condition: template
+            value_template: "{{ mode == '摄像头' }}"
+        sequence:
+          - condition: template
+            value_template: >
+              {{ trigger.entity_id in camera_entities or trigger.entity_id in motion_sensors }}
 
 action:
   - choose:
@@ -300,7 +340,7 @@ action:
                     data:
                       image_entity: "{{ ['camera.' + trigger.payload_json['after']['camera']|lower] }}"
                       model: "{{model}}"
-                      message: "{{message}}"
+                      message: "{{importance_prompt}}"
                       max_tokens: !input max_tokens
                       temperature: !input temperature
                     response_variable: importance
@@ -312,7 +352,7 @@ action:
                     data:
                       image_entity: "{{[camera_entity]}}"
                       model: "{{model}}"
-                      message: "{{message}}"
+                      message: "{{importance_prompt}}"
                       max_tokens: !input max_tokens
                       temperature: !input temperature
                     response_variable: importance
