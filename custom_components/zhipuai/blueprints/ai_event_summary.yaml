@@ -42,18 +42,9 @@ blueprint:
           multiple: true
           filter:
             domain: camera
-    trigger_state:
-      name: 触发状态
-      description: >-
-        当摄像头变为此状态时触发自动化。
-      default: 'recording'
-      selector:
-        text:
-          multiline: false
     motion_sensors:
       name: 移动传感器
-      description: >-
-        如果您的摄像头不改变状态，请设置此项。使用与摄像头实体相同的顺序。
+      description: 当这些传感器触发时分析对应的摄像头画面
       default: []
       selector:
         entity:
@@ -157,24 +148,21 @@ variables:
   device_name_map: >
     {% set ns = namespace(device_names=[]) %}
     {% for device_id in notify_devices %}
-      {% set device_name = device_attr(device_id, "name") %}
-      {% set sanitized_name = "mobile_app_" + device_name | slugify  %}
-      {% set ns.device_names = ns.device_names + [sanitized_name] %}
+      {% set device_name = device_attr(device_id, "name")|lower|replace(" ", "_") %}
+      {% set ns.device_names = ns.device_names + [device_name] %}
     {% endfor %}
     {{ ns.device_names }}
   camera_entities_list: !input camera_entities
   motion_sensors_list: !input motion_sensors
   camera_entity: >
-    {% if motion_sensors_list and trigger is defined and trigger.platform == 'state' %}
-      {% if motion_sensors_list and trigger.entity_id in motion_sensors_list %}
-        {% set index = motion_sensors_list.index(trigger.entity_id) %}
-        {{ camera_entities_list[index] if index < camera_entities_list|length else camera_entities_list[0] }}
-      {% else %}
-        {{ trigger.entity_id }}
-      {% endif %}
-    {% else %}
-      {{ camera_entities_list[0] if camera_entities_list else '' }}
+    {% if trigger.entity_id in motion_sensors %}
+      {% set index = motion_sensors.index(trigger.entity_id) %}
+      {{ camera_entities[index] if index < camera_entities|length else camera_entities[0] }}
     {% endif %}
+  camera_name: >
+    {{ camera_entity.replace("camera.", "").replace("_", " ")|title }}
+  sensor_name: >
+    {{ trigger.entity_id.replace("binary_sensor.", "").replace("_", " ")|title }}
   tag: >
     {{ camera_entity + int(as_timestamp(now()))|string }}
   group: >
@@ -184,27 +172,11 @@ variables:
   camera: >
     {{ camera_entity.replace("camera.", "").replace("_", " ")|capitalize }}
   image: >
-    {% if preview_mode == '实时预览' %}
-      {{ '/api/camera_proxy/' + camera_entity }}
-    {% else %}
-      {% set camera = camera_entity|default('') %}
-      {% if camera %}
-        /local/zhipuai/{{camera.replace("camera.", "")}}_0.jpg
-      {% else %}
-        ''
-      {% endif %}
-    {% endif %}
-  importance_prompt: >
-    您的任务是根据监控画面对安防事件进行分类。选项："passive"表示事件不重要，"time-sensitive"表示重要，"critical"表示可疑事件。
-    仅在可能发生入室盗窃等类似事件时使用"critical"。"time-sensitive"可能是快递员在门口或类似重要性的事件。
-    请严格使用这些回复。
+    {{ '/api/camera_proxy/' + camera_entity }}
 
 mode: single
 
 trigger:
-  - platform: state
-    entity_id: !input camera_entities
-    to: !input trigger_state
   - platform: state
     entity_id: !input motion_sensors
     to: "on"
@@ -212,81 +184,36 @@ trigger:
 condition:
   - condition: template
     value_template: >
-      {{ trigger.entity_id in camera_entities or trigger.entity_id in motion_sensors }}
+      {{ trigger.entity_id in motion_sensors }}
 
 action:
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ important }}"
-        sequence:
-          - action: zhipuai.image_analyzer
-            data:
-              model: !input model
-              message: "{{importance_prompt}}"
-              image_entity: "{{camera_entity}}"
-              temperature: !input temperature
-              max_tokens: 3
-            response_variable: importance
-
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ importance is defined and importance.response_text|lower == 'passive' }}"
-        sequence:
-          - stop: "事件不重要"
-
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ image != '' }}"
-        sequence:
-          - alias: "向通知设备发送即时通知"
-            repeat:
-              for_each: "{{device_name_map}}"
-              sequence:
-                - service: "mobile_app.notify_{{ repeat.item }}"
-                  data:
-                    title: "{{ label }}"
-                    message: "{{camera}}"
-                    data:
-                      image: "{{image}}"
-                      entity_id: "{{camera_entity if preview_mode=='实时预览'}}"
-                      url: !input tap_navigate
-                      clickAction: !input tap_navigate
-                      tag: "{{tag}}"
-                      group: "{{group}}"
-                      interruption-level: "{{importance.response_text|lower if importance is defined else 'active'}}"
-
   - alias: "分析事件"
     action: zhipuai.image_analyzer
     data:
       model: !input model
       message: !input message
       image_entity: "{{camera_entity}}"
-      temperature: !input temperature
-      max_tokens: !input max_tokens
 
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ image != '' }}"
-        sequence:
-          - alias: "向通知设备发送即时通知"
-            repeat:
-              for_each: "{{device_name_map}}"
-              sequence:
-                - service: "mobile_app.notify_{{ repeat.item }}"
-                  data:
-                    title: "{{ label }}"
-                    message: "{{response.response_text}}"
-                    data:
-                      image: "{{image}}"
-                      entity_id: "{{camera_entity if preview_mode=='实时预览'}}"
-                      url: !input tap_navigate
-                      clickAction: !input tap_navigate
-                      tag: "{{tag}}"
-                      group: "{{group}}"
-                      interruption-level: passive
+  - alias: "在界面上显示分析结果"
+    service: persistent_notification.create
+    data:
+      title: "AI分析: {{camera_name}}"
+      message: |
+        摄像头: {{camera_name}}
+        触发传感器: {{sensor_name}}
+        触发时间: {{now().strftime('%Y-%m-%d %H:%M:%S')}}
+        
+        AI分析结果:
+        {{response.response_text}}
 
-  - delay: '00:{{cooldown|int}}:00'
+  - alias: "发送通知"
+    repeat:
+      for_each: "{{device_name_map}}"
+      sequence:
+        - service: notify.{{ repeat.item }}
+          data:
+            title: "AI分析: {{camera_name}}"
+            message: "{{response.response_text}}"
+            data:
+              image: "{{image}}"
+              entity_id: "{{camera_entity}}"
