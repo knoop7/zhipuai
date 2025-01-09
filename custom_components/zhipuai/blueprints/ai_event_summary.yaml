@@ -4,29 +4,6 @@ blueprint:
   description: >
     基于智谱AI的摄像头事件分析，可以智能分析摄像头画面并生成事件摘要。
     向您的手机发送带预览的通知，当AI分析完成后会动态更新。
-
-    功能特点：
-    1. 支持多个摄像头和传感器的配对
-    2. 实时分析：传感器触发时立即开始分析
-    3. 双重通知：先发送触发提醒，分析完成后更新结果
-    4. 智能分析：使用智谱AI的视觉模型分析画面内容
-    5. 美观通知：包含实时预览和分析结果
-    6. 重要性过滤：可选择只关注重要事件
-    7. 历史记录：可选择保存事件记录
-
-    使用说明：
-    1. 选择要监控的摄像头
-    2. 选择对应的触发传感器（按顺序匹配）
-    3. 选择接收通知的设备
-    4. 自定义分析要求（可选）
-    5. 选择合适的AI模型
-    6. 配置其他选项（重要性过滤、历史记录等）
-
-    注意事项：
-    1. 传感器和摄像头需要一一对应
-    2. 确保设备支持通知功能
-    3. 建议使用移动传感器或门窗传感器触发
-  domain: automation
   source_url: https://raw.githubusercontent.com/knoop7/zhipuai/refs/heads/v2025.01.09-dev/custom_components/zhipuai/blueprints/ai_event_summary.yaml
   input:
     important:
@@ -125,6 +102,39 @@ blueprint:
           options:
             - "glm-4v-flash"
             - "glm-4v-plus"
+    message:
+      name: 分析要求
+      description: >
+        告诉AI要关注画面中的哪些内容。
+        可以包含多个关注点，建议使用分点列举的方式说明。
+        例如关注人物、行为、穿着、可疑行为等。
+      default: "请分析画面中发生了什么，重点关注：1.是否有人 2.在做什么 3.穿着特征 4.是否可疑 5.是否有危险"
+      selector:
+        text:
+          multiline: true
+    temperature:
+      name: 随机性
+      description: >
+        控制输出的随机性（0.1-1.0）：
+        - 较低的值（如0.1）：输出更稳定、保守
+        - 较高的值（如0.8）：输出更多样、创新
+      default: 0.8
+      selector:
+        number:
+          min: 0.1
+          max: 1.0
+          step: 0.1
+    max_tokens:
+      name: 最大长度
+      description: >
+        限制生成文本的最大长度。
+        较大的值可以获得更详细的描述，
+        但也会消耗更多的配额。
+      default: 1024
+      selector:
+        number:
+          min: 100
+          max: 2048
     cooldown:
       name: 冷却时间
       description: >
@@ -158,7 +168,7 @@ variables:
     {{ trigger.entity_id.replace("binary_sensor.", "").replace("_", " ")|title }}
   image: >
     {% if preview_mode == '实时预览' %}
-      {{ '/api/camera_proxy/' + camera_entity }}
+    {{ '/api/camera_proxy/' + camera_entity }}
     {% else %}
       {% set camera = camera_entity|default('') %}
       {% if camera %}
@@ -190,10 +200,13 @@ condition:
       {{ trigger.entity_id in motion_sensors }}
   - condition: template
     value_template: >
-      {{ camera_entity is defined and camera_entity != '' }}
-  - condition: state
-    entity_id: "{{ camera_entity }}"
-    state: "on"
+      {% set camera = camera_entity %}
+      {% if camera %}
+        {% set state = states(camera) %}
+        {{ state == 'on' }}
+      {% else %}
+        {{ false }}
+      {% endif %}
 
 action:
   - choose:
