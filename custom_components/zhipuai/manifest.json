@@ -1,0 +1,13 @@
+{
+  "domain": "zhipuai",
+  "name": "\u667a\u8c31\u6e05\u8a00",
+  "codeowners": ["@knoop7"],
+  "config_flow": true,
+  "documentation": "https://github.com/knoop7/zhipuai",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/knoop7/zhipuai/issues",
+  "requirements": [],
+  "version": "2025.01.10",
+  "translations": ["en", "zh-Hans"]
+}
