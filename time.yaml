@@ -1,0 +1,92 @@
+alias: 智谱AI计时器处理
+description: 处理用户的计时器语音命令
+triggers:
+  - event_type: zhipuai_intent
+    event_data:
+      intent: HassTimerIntent
+    trigger: event
+conditions: []
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ action in ['create', 'set', 'add', 'start'] }}"
+        sequence:
+          - target:
+              entity_id: "{{ timer_id }}"
+            data:
+              duration: "{{ duration }}"
+            action: timer.start
+          - data:
+              message: |
+                {% if timer_name %}
+                  已设置计时器：{{ timer_name }}
+                  {% if duration %}，时长：{{ duration }}{% endif %}
+                {% else %}
+                  已设置计时器{% if duration %}，时长：{{ duration }}{% endif %}
+                {% endif %}
+            action: notify.notify
+      - conditions:
+          - condition: template
+            value_template: "{{ action in ['cancel', 'remove', 'delete'] }}"
+        sequence:
+          - target:
+              entity_id: "{{ timer_id }}"
+            action: timer.cancel
+          - data:
+              message: |
+                {% if timer_name %}
+                  已取消计时器：{{ timer_name }}
+                {% else %}
+                  已取消计时器
+                {% endif %}
+            action: notify.notify
+      - conditions:
+          - condition: template
+            value_template: "{{ action in ['pause', 'stop'] }}"
+        sequence:
+          - target:
+              entity_id: "{{ timer_id }}"
+            action: timer.pause
+          - data:
+              message: |
+                {% if timer_name %}
+                  已暂停计时器：{{ timer_name }}
+                {% else %}
+                  已暂停计时器
+                {% endif %}
+            action: notify.notify
+      - conditions:
+          - condition: template
+            value_template: "{{ action in ['finish', 'end', 'complete'] }}"
+        sequence:
+          - target:
+              entity_id: "{{ timer_id }}"
+            action: timer.finish
+          - data:
+              message: |
+                {% if timer_name %}
+                  已结束计时器：{{ timer_name }}
+                {% else %}
+                  已结束计时器
+                {% endif %}
+            action: notify.notify
+    default:
+      - data:
+          message: 不支持的计时器操作：{{ action }}
+        action: notify.notify
+variables:
+  timer_name: |
+    {{ trigger.event.data.slots.timer_name.value if 
+       trigger.event.data.slots.timer_name else '' }}
+  duration: |
+    {{ trigger.event.data.slots.duration.value if 
+       trigger.event.data.slots.duration else '' }}
+  action: "{{ trigger.event.data.slots.action.value }}"
+  timer_id: |
+    {% if timer_name %}
+      {{ 'timer.' + timer_name | lower | replace(' ', '_') }}
+    {% else %}
+      timer.default
+    {% endif %}
+mode: single
