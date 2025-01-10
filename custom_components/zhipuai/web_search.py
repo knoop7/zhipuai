@@ -16,6 +16,8 @@ from .const import (
     DOMAIN,
     LOGGER,
     ZHIPUAI_WEB_SEARCH_URL,
+    CONF_WEB_SEARCH,
+    DEFAULT_WEB_SEARCH
 )
 
 WEB_SEARCH_SCHEMA = vol.Schema({
@@ -30,7 +32,12 @@ async def async_setup_web_search(hass: HomeAssistant) -> None:
             config_entries = hass.config_entries.async_entries(DOMAIN)
             if not config_entries:
                 raise ValueError("未找到 ZhipuAI 配置")
-            api_key = config_entries[0].data.get("api_key")
+            
+            entry = config_entries[0]
+            if not entry.options.get(CONF_WEB_SEARCH, DEFAULT_WEB_SEARCH):
+                raise ValueError("联网搜索功能已关闭，请在配置中开启")
+                
+            api_key = entry.data.get("api_key")
             if not api_key:
                 raise ValueError("在配置中找不到 API 密钥")
 

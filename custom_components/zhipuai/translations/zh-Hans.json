@@ -1,4 +1,5 @@
 {
+  "title": "智谱清言",
   "config": {
     "step": {
       "user": {
@@ -6,34 +7,45 @@
           "name": "自定义名称",
           "api_key": "API 密钥"
         },
-        "description": "获取密钥：[点击链接](https://open.bigmodel.cn/console/modelft/dataset)"
+        "description": "获取密钥：[点击链接](https://www.bigmodel.cn/invite?icode=9niOGcfvBKiiCpCLI4tgtX3uFJ1nZ0jLLgipQkYjpcA%3D)"
       },
       "reauth_confirm": {
-        "title": "重新验证智谱 AI",
-        "description": "您的智谱 AI API 密钥已失效，请输入新的 API 密钥",
+        "title": "重新验证 智谱AI",
+        "description": "您的 智谱AI API密钥已失效，请输入新的 API 密钥",
         "data": {
           "api_key": "API 密钥"
         }
       },
       "reconfigure_confirm": {
-        "title": "重新配置智谱 AI",
+        "title": "重新配置 智谱AI",
         "description": "请输入新的配置信息",
         "data": {
           "api_key": "API 密钥"
+        }
+      },
+      "history": {
+        "title": "历史数据分析配置",
+        "description": "选择需要分析的实体和历史数据天数",
+        "data": {
+          "history_entities": "选择实体",
+          "history_days": "历史数据天数 (1-3天)"
         }
       }
     },
     "error": {
       "cannot_connect": "无法连接到服务",
-      "invalid_auth": "验证无效",
-      "unknown": "已保存配置，无需二次",
+      "invalid_auth": "API密钥错误",
+      "unknown": "未知错误",
       "cooldown_too_small": "冷却时间值 {value} 太小，请设置大于等于 0 的值！",
       "cooldown_too_large": "冷却时间值 {value} 太大，请设置小于等于 10 的值！",
-      "invalid_option": "无效的选项值"
+      "model_not_found": "找不到指定的模型",
+      "invalid_api_key": "API Key 格式错误",
+      "invalid_days": "历史数据天数必须在1-3天之间",
+      "no_entities": "请至少选择一个实体"
     },
     "abort": {
-      "single_instance_allowed": "已经配置，只允许一个配置条目。",
-      "reauth_successful": "重新验证成功",
+      "already_configured": "设备已经配置",
+      "reauth_successful": "重新认证成功",
       "reconfigure_successful": "重新配置成功"
     }
   },
@@ -41,28 +53,38 @@
     "step": {
       "init": {
         "data": {
-          "prompt": "指令",
           "chat_model": "聊天模型",
-          "max_tokens": "响应中返回的最大令牌数",
           "temperature": "温度",
-          "top_p": "Top P",
-          "llm_hass_api": "选项",
-          "recommended": "推荐的模型设置",
+          "max_tokens": "最大令牌数",
           "max_history_messages": "最大历史消息数",
-          "max_tool_iterations": "最大工具调用次数",
-          "cooldown_period": "冷却时间（秒）"
+          "top_p": "Top P",
+          "prompt": "提示词模板",
+          "max_tool_iterations": "最大工具迭代次数",
+          "cooldown_period": "冷却时间（秒）",
+          "llm_hass_api": "Home Assistant LLM API",
+          "recommended": "使用推荐的模型设置",
+          "web_search": "互联网分析搜索",
+          "history_analysis": "实体历史数据分析"
         },
         "data_description": {
           "prompt": "指示 LLM 应如何响应。这可以是一个模板。",
-          "chat_model": "请选择要使用的聊天模型 (首选默认已选择免费通用128K模型，若有富哥需求更好的体验可以选择支持其余付费模型，实际费用并不高，具体请查询官方网页计费标准）",
+          "chat_model": "请选择要使用的聊天模型，默认请选择免费通用128K模型，如需更好体验可选择支持其他付费模型，实际费用不高，具体请查看官网计费标准。",
           "max_tokens": "设置响应中返回的最大令牌数",
           "temperature": "控制输出的随机性（0-2）",
-          "top_p": "控制输出的多样性（0-1）",
-          "llm_hass_api": "Home Assistant LLM API",
+          "top_p": "控制输出多样性（0-1）",
+          "llm_hass_api": "选择启用 Home Assistant LLM ",
           "recommended": "使用推荐的模型设置",
-          "max_history_messages": "设置要保留的最大历史消息数，作用：控制输入内容的记忆功能，记忆功能可以保证上下文的流畅对话。通常控制家庭设备在5次内最好，有效针对于无法顺利请求。其他日常对话可以设置阀值10次以上。",
-          "max_tool_iterations": "设置单次对话中最大的工具调用次数，作用：针对于系统LLM的调用请求的调用阀值，若有错误可以保证系统不被卡死，特别针对于各类性能偏弱的小主机的设计，建议设置20-30次。",
-          "cooldown_period": "设置两次对话请求之间的最小间隔时间（0-10秒）作用：请求会延迟等待一段时间再发送，建议设置3秒内。保证因为速率的因素所导致内容的发送请求失败。"
+          "max_history_messages": "设置要保留的最大历史消息数。功能：控制输入内容的记忆功能，记忆功能可以保证上下文对话顺畅，一般控制家居设备最好控制在5次以内，对请求不能顺利进行有效，其他日常对话可以设置阈值在10次以上。",
+          "max_tool_iterations": "设置单次对话中的最大工具调用次数。其功能是对系统LLM调用请求设置调用阈值，如果出错可以保证系统不会卡死，尤其是对各种性能较弱的小主机的设计，建议设置20-30次。",
+          "cooldown_period": "设置两次对话请求的最小间隔时间（0-10秒）。作用：请求会延迟一段时间再发送，建议设置在3秒以内，保证因为频率因素导致内容发送请求失败。"
+        }
+      },
+      "history": {
+        "title": "实体历史数据分析 配置",
+        "description": "在**Jinja2模版**（Home Assistant的模板系统）无法实现的场景下提供**实体历史数据分析**，保证AI理解并分析您的设备数据，举例：可以用于自动化帮您分析家中安防、人员活动轨迹，日常生活总结，UI文本模版介绍等。\n\n• 支持**AI辅助分析**历史数据（让AI理解并分析您的设备数据）\n• 为**设备管理**提供智能决策支持\n• 建议控制在**1天历史数据**范围内以获得最佳效果",
+        "data": {
+          "history_entities": "选择实体",
+          "history_days": "历史数据天数 (1-15天)"
         }
       }
     }

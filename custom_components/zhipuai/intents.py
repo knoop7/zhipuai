@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 import os
 import yaml
-from datetime import timedelta
+from datetime import timedelta, datetime
 from typing import Any, Dict, List, Optional, Set
 import voluptuous as vol
 from homeassistant.components import camera
@@ -19,44 +19,69 @@ from homeassistant.core import Context, HomeAssistant, ServiceResponse, State
 from homeassistant.helpers import area_registry, device_registry, entity_registry, intent
 from .const import DOMAIN, LOGGER
 
+_YAML_CACHE = {}
+
+async def async_load_yaml_config(hass: HomeAssistant, path: str) -> dict:
+    if path not in _YAML_CACHE:
+        if os.path.exists(path):
+            def _load_yaml():
+                with open(path, 'r', encoding='utf-8') as f:
+                    return yaml.safe_load(f)
+            _YAML_CACHE[path] = await hass.async_add_executor_job(_load_yaml)
+    return _YAML_CACHE.get(path, {})
+
 INTENT_CAMERA_ANALYZE = "ZhipuAICameraAnalyze"
 INTENT_WEB_SEARCH = "ZhipuAIWebSearch"
+INTENT_TIMER = "HassTimerIntent"
+INTENT_NOTIFY = "HassNotifyIntent"
+INTENT_COVER_GET_STATE = "ZHIPUAI_CoverGetStateIntent"
+INTENT_COVER_SET_POSITION = "ZHIPUAI_CoverSetPositionIntent"
 INTENT_NEVERMIND = "nevermind"
 SERVICE_PROCESS = "process"
 ERROR_NO_CAMERA = "no_camera"
 ERROR_NO_RESPONSE = "no_response"
 ERROR_SERVICE_CALL = "service_call_error"
 ERROR_NO_QUERY = "no_query"
+ERROR_NO_TIMER = "no_timer"
+ERROR_NO_MESSAGE = "no_message"
+ERROR_INVALID_POSITION = "invalid_position"
 
 async def async_setup_intents(hass: HomeAssistant) -> None:
     yaml_path = os.path.join(os.path.dirname(__file__), "intents.yaml")
-    if os.path.exists(yaml_path):
-        with open(yaml_path, 'r', encoding='utf-8') as f:
-            intents_config = yaml.safe_load(f)
-            LOGGER.info("从 %s 加载的 intent 配置", yaml_path)
+    intents_config = await async_load_yaml_config(hass, yaml_path)
+    if intents_config:
+        LOGGER.info("从 %s 加载的 intent 配置", yaml_path)
     
-    intent.async_register(hass, CameraAnalyzeIntent())
-    intent.async_register(hass, WebSearchIntent())
+    intent.async_register(hass, CameraAnalyzeIntent(hass))
+    intent.async_register(hass, WebSearchIntent(hass))
+    intent.async_register(hass, HassTimerIntent(hass))
+    intent.async_register(hass, HassNotifyIntent(hass))
 
 
 class CameraAnalyzeIntent(intent.IntentHandler):
     intent_type = INTENT_CAMERA_ANALYZE
     slot_schema = {vol.Required("camera_name"): str, vol.Required("question"): str}
 
-    def __init__(self):
+    def __init__(self, hass: HomeAssistant):
         super().__init__()
-        yaml_path = os.path.join(os.path.dirname(__file__), "intents.yaml")
-        if os.path.exists(yaml_path):
-            with open(yaml_path, 'r', encoding='utf-8') as f:
-                self.config = yaml.safe_load(f).get(INTENT_CAMERA_ANALYZE, {})
+        self.hass = hass
+        self.config = {}
+        self._config_loaded = False
+
+    async def _load_config(self):
+        if not self._config_loaded:
+            yaml_path = os.path.join(os.path.dirname(__file__), "intents.yaml")
+            config = await async_load_yaml_config(self.hass, yaml_path)
+            self.config = config.get(INTENT_CAMERA_ANALYZE, {})
+            self._config_loaded = True
 
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        await self._load_config()
         slots = self.async_validate_slots(intent_obj.slots)
-        camera_name = slots.get("camera_name", {}).get("value", "")
-        question = slots.get("question", {}).get("value", "")
+        camera_name = self.get_slot_value(slots.get("camera_name"))
+        question = self.get_slot_value(slots.get("question"))
         
         LOGGER.info("Camera analyze intent info - 原始插槽: %s", slots)
-        LOGGER.info("Camera analyze intent info - Camera: %s, Question: %s", camera_name, question)
         
         target_camera = next((e for e in intent_obj.hass.states.async_all(camera.DOMAIN) 
             if camera_name.lower() in (e.name.lower(), e.entity_id.lower())), None)
@@ -90,24 +115,33 @@ class CameraAnalyzeIntent(intent.IntentHandler):
         response.async_set_speech(message)
         return response
 
+    def get_slot_value(self, slot_data):
+        return None if not slot_data else slot_data.get('value') if isinstance(slot_data, dict) else getattr(slot_data, 'value', None) if hasattr(slot_data, 'value') else str(slot_data)
+
 
 class WebSearchIntent(intent.IntentHandler):
     intent_type = INTENT_WEB_SEARCH
     slot_schema = {vol.Required("query"): str}
 
-    def __init__(self):
+    def __init__(self, hass: HomeAssistant):
         super().__init__()
-        yaml_path = os.path.join(os.path.dirname(__file__), "intents.yaml")
-        if os.path.exists(yaml_path):
-            with open(yaml_path, 'r', encoding='utf-8') as f:
-                self.config = yaml.safe_load(f).get(INTENT_WEB_SEARCH, {})
+        self.hass = hass
+        self.config = {}
+        self._config_loaded = False
+
+    async def _load_config(self):
+        if not self._config_loaded:
+            yaml_path = os.path.join(os.path.dirname(__file__), "intents.yaml")
+            config = await async_load_yaml_config(self.hass, yaml_path)
+            self.config = config.get(INTENT_WEB_SEARCH, {})
+            self._config_loaded = True
 
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        await self._load_config()
         slots = self.async_validate_slots(intent_obj.slots)
-        query = slots.get("query", {}).get("value", "")
+        query = self.get_slot_value(slots.get("query"))
         
-        LOGGER.info("Web 搜索 intent 信息 - 原始槽:%s", slots)
-        LOGGER.info("Web 搜索 意图 信息 - 提取的查询： %s", query)
+        LOGGER.info("Web search info - 原始插槽:%s", slots)
         
         if not query:
             response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
@@ -160,6 +194,170 @@ class WebSearchIntent(intent.IntentHandler):
         response.async_set_speech(message)
         return response
 
+    def get_slot_value(self, slot_data):
+        return None if not slot_data else slot_data.get('value') if isinstance(slot_data, dict) else getattr(slot_data, 'value', None) if hasattr(slot_data, 'value') else str(slot_data)
+
+
+class HassTimerIntent(intent.IntentHandler):
+    intent_type = "HassTimerIntent"
+    slot_schema = {
+        vol.Required("action"): str,
+        vol.Optional("duration"): str,
+        vol.Optional("timer_name"): str
+    }
+
+    def __init__(self, hass: HomeAssistant):
+        super().__init__()
+        self.hass = hass
+        self.config = {}
+        self._config_loaded = False
+
+    async def _load_config(self):
+        if not self._config_loaded:
+            yaml_path = os.path.join(os.path.dirname(__file__), "intents.yaml")
+            self.config = (await async_load_yaml_config(self.hass, yaml_path)).get("HassTimerIntent", {})
+            self._config_loaded = True
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        await self._load_config()
+        slots = self.async_validate_slots(intent_obj.slots)
+        get_slot_value = lambda slot_name: self.get_slot_value(slots.get(slot_name))
+        action = get_slot_value("action")
+        duration = get_slot_value("duration")
+        timer_name = get_slot_value("timer_name")
+        
+        response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+        return response.async_set_error(code="no_action", message="未指定操作类型") if not action else await self._handle_timer(response, action, duration, timer_name)
+
+    async def _handle_timer(self, response, action, duration, timer_name):
+        action_map = {"set": "start", "add": "start", "create": "start", "stop": "pause", "remove": "cancel", "delete": "cancel", "end": "finish", "提醒": "start"}
+        action = action_map.get(action, action)
+        LOGGER.info("Hass timer intent info - 原始插槽: %s", {"action": action, "duration": duration, "timer_name": timer_name})
+
+        timer_entities = self.hass.states.async_entity_ids("timer")
+        return response.async_set_error(code="no_timer", message="未找到可用的计时器，请先在Home Assistant中创建一个计时器") if not timer_entities else await self._process_timer(response, action, duration, timer_name, timer_entities[0])
+
+    async def _process_timer(self, response, action, duration, timer_name, timer_id):
+        time_words = {'早上': 7, '早晨': 7, '上午': 9, '中午': 12, '下午': 14, '晚上': 20, '傍晚': 18, '凌晨': 5,
+                     '早饭': 7, '早餐': 7, '午饭': 12, '午餐': 12, '晚饭': 18, '晚餐': 18, '夜宵': 22}
+
+        def parse_time(text):
+            return (None, None) if not text else self._parse_time_impl(text.lower(), time_words)
+
+        minutes, is_absolute = parse_time(timer_name) or parse_time(duration) or (None, None)
+        
+        try:
+            data = {"duration": f"{minutes//60:02d}:{minutes%60:02d}:00"} if minutes and minutes > 0 else {}
+            target_time = datetime.now() + timedelta(minutes=minutes) if minutes and minutes > 0 else None
+            
+            time_str = (target_time.strftime('%H:%M') if is_absolute else 
+                       f"{minutes//60}小时{minutes%60}分钟后" if minutes and minutes > 0 and minutes//60 > 0 and minutes%60 > 0 else
+                       f"{minutes//60}小时后" if minutes and minutes > 0 and minutes//60 > 0 else
+                       f"{minutes%60}分钟后" if minutes and minutes > 0 else None)
+            
+            response.async_set_speech(f"好的，已设置{timer_name if timer_name else '计时器'}，将在{time_str}提醒您" if time_str else f"好的，已{action}计时器")
+            await self.hass.services.async_call("timer", action, {"entity_id": timer_id, **data}, blocking=True)
+            return response
+        except Exception as e:
+            return response.async_set_error(code="service_call_error", message=f"操作失败：{str(e)}")
+
+    def _parse_time_impl(self, text, time_words):
+        hour_match = re.search(r"(\d+)[点时:](\d+)?", text)
+        is_absolute = bool(hour_match or any(word in text for word in time_words.keys()))
+        
+        if is_absolute:
+            target_time = datetime.now() + timedelta(days=("明天" in text) + ("后天" in text) * 2)
+            hour = int(hour_match.group(1)) if hour_match else next((h for w, h in time_words.items() if w in text), None)
+            minute = int(hour_match.group(2)) if hour_match and hour_match.group(2) else 0
+            hour = hour + 12 if hour and hour <= 12 and any(w in text for w in ['下午', '晚上', '傍晚', '晚饭', '晚餐', '夜宵']) else hour
+            target_time = target_time.replace(hour=hour, minute=minute) if hour is not None else target_time
+            minutes = int((target_time - datetime.now()).total_seconds() / 60)
+            return (minutes, True) if minutes > 0 else (None, True)
+        
+        matches = re.findall(r'(\d+)\s*([小时分钟天hmd]|hour|minute|min|hr|h|m)s?', text)
+        total_minutes = sum(int(value) * (60 if unit.startswith('h') or unit in ['小时'] else
+                                        1 if unit.startswith('m') or unit in ['分钟'] else
+                                        24 * 60) for value, unit in matches)
+        return total_minutes or None, False
+
+    def get_slot_value(self, slot_data):
+        return None if not slot_data else slot_data.get('value') if isinstance(slot_data, dict) else getattr(slot_data, 'value', None) if hasattr(slot_data, 'value') else str(slot_data)
+
+
+class HassNotifyIntent(intent.IntentHandler):
+    intent_type = "HassNotifyIntent"
+    slot_schema = {vol.Required("message"): str}
+
+    def __init__(self, hass: HomeAssistant):
+        super().__init__()
+        self.hass = hass
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+
+        try:
+            message = self.get_slot_value(intent_obj.slots.get("message"))
+            if not message:
+                response.async_set_error("no_message", "请提供要发送的通知内容")
+                return response
+
+            title_result = await self.hass.services.async_call(
+                "conversation", "process", 
+                {
+                    "agent_id": "conversation.zhi_pu_qing_yan",
+                    "language": "zh-cn",
+                    "text": f"请为这条消息生成一个简短的标题（不超过8个字）：{message}"
+                },
+                blocking=True,
+                return_response=True
+            )
+
+            title = "新通知"
+            if title_result and isinstance(title_result, dict):
+                ai_title = title_result.get("response", {}).get("speech", {}).get("plain", {}).get("speech", "")
+                if ai_title:
+                    title = ai_title
+
+            result = await self.hass.services.async_call(
+                "conversation", "process", 
+                {
+                    "agent_id": "conversation.zhi_pu_qing_yan",
+                    "language": "zh-cn",
+                    "text": f"请将以下内容改写成一条通知消息，只需返回改写后的文本内容，不要添加也不需要执行动作工具任何代码或格式,注意要使用表情emoji：{message}"
+                },
+                blocking=True,
+                return_response=True
+            )
+
+            if not result or not isinstance(result, dict):
+                response.async_set_error("invalid_response", "AI 响应格式错误")
+                return response
+
+            ai_response = result.get("response", {})
+            ai_message = ai_response.get("speech", {}).get("plain", {}).get("speech", "")
+            if not ai_message:
+                ai_message = message
+
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            from homeassistant.components import persistent_notification
+            persistent_notification.async_create(
+                self.hass,
+                f"{ai_message}\n\n创建时间：{current_time}",
+                title=f"{title}"
+            )
+            
+            response.async_set_speech(f"已创建通知: {message}")
+            return response
+
+        except Exception as err:
+            LOGGER.exception("发送通知失败")
+            response.async_set_error("notification_error", f"发送通知失败: {str(err)}")
+            return response
+
+    def get_slot_value(self, slot_data):
+        return None if not slot_data else slot_data.get('value') if isinstance(slot_data, dict) else getattr(slot_data, 'value', None) if hasattr(slot_data, 'value') else str(slot_data)
+
 
 def extract_intent_info(user_input: str, hass: HomeAssistant) -> Optional[Dict[str, Any]]:
     entity_match = re.search(r'([\w_]+\.[\w_]+)', user_input)
@@ -173,7 +371,6 @@ def extract_intent_info(user_input: str, hass: HomeAssistant) -> Optional[Dict[s
         r'停止|暂停|stop|pause': 'stop',
         r'继续|resume': 'start',
         r'设置|调整|set|adjust': 'set',
-        r'没事|算了|再见|闭嘴|退下|nevermind|bye': INTENT_NEVERMIND
     }
     
     action = next((action for pattern, action in intent_mappings.items() 
@@ -206,14 +403,14 @@ class IntentHandler:
 
     async def call_service(self, domain: str, service: str, data: Dict[str, Any]) -> Dict[str, Any]:
         try:
-            entity_id = data.pop("entity_id", None)
-            entity = self.hass.states.get(entity_id)
+            entity_id = data.get("entity_id")
+            entity = self.hass.states.get(entity_id) if entity_id else None
             friendly_name = entity.attributes.get("friendly_name") if entity else "设备"
             service_data = {**data, "entity_id": entity_id} if entity_id else data
             await self.hass.services.async_call(domain, service, service_data, blocking=True)
-            return {"success": True, "message": f"您好，我已执行 {friendly_name}", "data": service_data}
+            return {"success": True, "message": f"已执行 {friendly_name} {service}"}
         except Exception as e:
-            return {"success": False, "message": str(e), "data": data}
+            return {"success": False, "message": str(e)}
 
     async def handle_intent(self, intent_info: Dict[str, Any]) -> Dict[str, Any]:
         domain = intent_info.get('domain')
@@ -252,20 +449,6 @@ class IntentHandler:
                                      (service == "lock" and not (supported_features & 2))))
             )
         )
-
-    async def handle_timer_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        timer_name = name if name else "default"
-        entity_id = f"timer.{timer_name}"
-        return await (
-            self.call_service(TIMER_DOMAIN, SERVICE_START, {"duration": data.get('duration'), "entity_id": entity_id})
-            if action == "start" and data.get('duration') else
-            self.call_service(TIMER_DOMAIN, SERVICE_PAUSE, {"entity_id": entity_id})
-            if action == "pause" and name else
-            self.call_service(TIMER_DOMAIN, SERVICE_CANCEL, {"entity_id": entity_id})
-            if action == "cancel" and name else
-            {"success": False, "message": f"不支持的定时器操作: {action}"}
-        )
-
     async def handle_cover_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
         entity_id = data.get('entity_id')
         return (
@@ -282,6 +465,22 @@ class IntentHandler:
             {"success": False, "message": "未指定门锁实体"} if not entity_id else
             await self.call_service("lock", action, {"entity_id": entity_id})
         )
+
+    async def handle_timer_intent(self, action: str, name: str, area: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        duration = data.get("duration", "")
+        timer_id = data.get('entity_id')
+        
+        minutes = (
+            int(''.join(filter(str.isdigit, duration))) if "minutes" in duration else
+            int(minutes_match.group(1)) if (minutes_match := re.search(r'(\d+)\s*分钟', duration)) else
+            None
+        )
+        
+        return {
+            "action": f"timer.{action}",
+            "data": {"duration": f"00:{minutes:02d}:00"} if action == "start" and minutes is not None else {},
+            "target": {"entity_id": timer_id}
+        }
 
 def get_intent_handler(hass: HomeAssistant) -> IntentHandler:
     return IntentHandler(hass)

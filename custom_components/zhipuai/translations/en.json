@@ -1,39 +1,51 @@
 {
+  "title": "Zhipu AI",
   "config": {
     "step": {
       "user": {
         "data": {
-          "name": "Custom Name",
-          "api_key": "API Key"
+          "name": "custom name",
+          "api_key": "API key"
         },
-        "description": "Get your key: [Click the link](https://open.bigmodel.cn/console/modelft/dataset)"
+        "description": "Get the key: [Click the link](https://www.bigmodel.cn/invite?icode=9niOGcfvBKiiCpCLI4tgtX3uFJ1nZ0jLLgipQkYjpcA%3D)"
       },
       "reauth_confirm": {
-        "title": "Reauthenticate ZhiPu AI",
-        "description": "Your ZhiPu AI API key has expired. Please enter a new API key.",
+        "title": "Re-verify Zhipu AI",
+        "description": "Your Zhipu AI API key has expired, please enter a new API key",
         "data": {
-          "api_key": "API Key"
+          "api_key": "API key"
         }
       },
       "reconfigure_confirm": {
-        "title": "Reconfigure ZhiPu AI",
-        "description": "Please enter the new configuration information.",
+        "title": "Reconfigure Zhipu AI",
+        "description": "Please enter new configuration information",
         "data": {
-          "api_key": "API Key"
+          "api_key": "API key"
+        }
+      },
+      "history": {
+        "title": "Historical data analysis configuration",
+        "description": "Select the entities to be analyzed and the number of days of historical data",
+        "data": {
+          "history_entities": "Select entity",
+          "history_days": "Number of days of historical data (1-3 days)"
         }
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to the service",
-      "invalid_auth": "Invalid authentication",
-      "unknown": "Configuration saved, no need for a second entry.",
-      "cooldown_too_small": "Cooldown period value {value} is too small. Please set it to a value greater than or equal to 0!",
-      "cooldown_too_large": "Cooldown period value {value} is too large. Please set it to a value less than or equal to 10!",
-      "invalid_option": "Invalid option value"
+      "cannot_connect": "Unable to connect to service",
+      "invalid_auth": "API key error",
+      "unknown": "unknown error",
+      "cooldown_too_small": "The cooling time value {value} is too small, please set a value greater than or equal to 0!",
+      "cooldown_too_large": "The cooling time value {value} is too large, please set a value less than or equal to 10!",
+      "model_not_found": "The specified model could not be found",
+      "invalid_api_key": "API Key format error",
+      "invalid_days": "The number of historical data days must be between 1-3 days",
+      "no_entities": "Please select at least one entity"
     },
     "abort": {
-      "single_instance_allowed": "Already configured; only one configuration entry is allowed.",
-      "reauth_successful": "Reauthentication successful",
+      "already_configured": "The device has been configured",
+      "reauth_successful": "Re-authentication successful",
       "reconfigure_successful": "Reconfiguration successful"
     }
   },
@@ -41,35 +53,45 @@
     "step": {
       "init": {
         "data": {
-          "prompt": "Instruction",
-          "chat_model": "Chat Model",
-          "max_tokens": "Maximum tokens to return in response",
-          "temperature": "Temperature",
+          "chat_model": "chat model",
+          "temperature": "temperature",
+          "max_tokens": "Maximum number of tokens",
+          "max_history_messages": "Maximum number of historical messages",
           "top_p": "Top P",
-          "llm_hass_api": "Option",
-          "recommended": "Recommended model settings",
-          "max_history_messages": "Maximum number of history messages",
-          "max_tool_iterations": "Maximum tool invocation count",
-          "cooldown_period": "Cooldown time (seconds)"
-        },
-        "data_description": {
-          "prompt": "Instructions on how the LLM should respond. This can be a template.",
-          "chat_model": "Please select the chat model to use (the default free general 128K model is pre-selected; if you require a better experience, you can choose to support other paid models, which are not very expensive. Please check the official website for billing standards.)",
-          "max_tokens": "Set the maximum number of tokens to return in the response.",
-          "temperature": "Controls the randomness of the output (0-2)",
-          "top_p": "Controls the diversity of the output (0-1)",
+          "prompt": "prompt word template",
+          "max_tool_iterations": "Maximum number of tool iterations",
+          "cooldown_period": "Cooling time (seconds)",
           "llm_hass_api": "Home Assistant LLM API",
           "recommended": "Use recommended model settings",
-          "max_history_messages": "Set the maximum number of history messages to retain. This controls the memory function of the input content, ensuring smooth dialogue. Typically, it is best to keep it within 5 for home device controls, effectively addressing requests that cannot be smoothly processed. For other daily conversations, a threshold of more than 10 can be set.",
-          "max_tool_iterations": "Set the maximum number of tool invocations in a single dialogue. This controls the threshold for requests to the system LLM, ensuring that the system does not get stuck in case of errors, especially designed for various low-performance small hosts. It is recommended to set this to 20-30 times.",
-          "cooldown_period": "Set the minimum interval time between two dialogue requests (0-10 seconds). This allows requests to wait for a period before sending, recommended to set within 3 seconds to prevent failures due to rate factors."
+          "web_search": "Internet analytics search",
+          "history_analysis": "Entity historical data analysis"
+        },
+        "data_description": {
+          "prompt": "Indicates how LLM should respond. This can be a template.",
+          "chat_model": "Please select the chat model you want to use. By default, please select the free universal 128K model. If you want a better experience, you can choose to support other paid models. The actual cost is not high. Please check the official website billing standards for details.",
+          "max_tokens": "Set the maximum number of tokens returned in the response",
+          "temperature": "Controls the randomness of the output (0-2)",
+          "top_p": "Control output diversity (0-1)",
+          "llm_hass_api": "Select to enable Home Assistant LLM",
+          "recommended": "Use recommended model settings",
+          "max_history_messages": "Set the maximum number of historical messages to retain. Function: Control the memory function of input content. The memory function can ensure smooth contextual dialogue. Generally, it is best to control home equipment within 5 times. It is effective for requests that cannot be processed smoothly. For other daily conversations, the threshold can be set to more than 10 times.",
+          "max_tool_iterations": "Set the maximum number of tool calls in a single conversation. Its function is to set the call threshold for the system LLM call request. If an error occurs, it can ensure that the system will not get stuck. Especially for the design of various small hosts with weak performance, it is recommended to set it 20-30 times.",
+          "cooldown_period": "Set the minimum interval between two conversation requests (0-10 seconds). Function: The request will be delayed for a period of time before being sent. It is recommended to set it within 3 seconds to ensure that the content sending request fails due to frequency factors."
+        }
+      },
+      "history": {
+        "title": "Entity historical data analysis configuration",
+        "description": "Provides **entity historical data analysis** in scenarios that **Jinja2 template** (Home Assistant's template system) cannot implement, ensuring that AI understands and analyzes your device data. For example: it can be used to automatically help you analyze home security , personnel activity trajectories, daily life summary, UI text template introduction, etc.\n\n• Support **AI-assisted analysis** historical data (let AI understand and analyze your device data)\n• Provide intelligent decision support for **device management**\n• It is recommended to control within the range of **1 day historical data** for best results",
+        "data": {
+          "history_entities": "Select entity",
+          "history_days": "Number of days of historical data (1-15 days)"
         }
       }
     }
   },
   "exceptions": {
     "invalid_config_entry": {
-      "message": "The provided configuration entry is invalid. Received: {config_entry}"
+      "message": "The provided configuration entry is invalid. What you get is {config_entry}"
     }
   }
 }

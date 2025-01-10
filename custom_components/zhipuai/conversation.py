@@ -1,3 +1,4 @@
+from __future__ import annotations
 import json
 import asyncio
 import time
@@ -17,6 +18,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.history import get_significant_states
 from homeassistant.util import ulid
+from home_assistant_intents import get_languages
 from .ai_request import send_ai_request
 from .intents import IntentHandler, extract_intent_info
 from .const import (
@@ -41,6 +43,8 @@ from .const import (
     CONF_HISTORY_ENTITIES,
     CONF_HISTORY_DAYS,
     DEFAULT_HISTORY_DAYS,
+    CONF_WEB_SEARCH,
+    DEFAULT_WEB_SEARCH,
 )
 
 
@@ -63,6 +67,12 @@ class ChatCompletionToolParam(TypedDict):
     type: str
     function: dict[str, Any]
 
+_FILTER_PATTERNS = [
+    re.compile(r'```[\s\S]*?```'),
+    re.compile(r'{[\s\S]*?}'),
+    re.compile(r'(?m)^(import|from|def|class)\s+.*$')
+]
+
 def _format_tool(tool: llm.Tool, custom_serializer: Any | None) -> ChatCompletionToolParam:
     tool_spec = {
         "name": tool.name,
@@ -74,7 +84,7 @@ def _format_tool(tool: llm.Tool, custom_serializer: Any | None) -> ChatCompletio
 
 def is_service_call(user_input: str) -> bool:
     patterns = {
-        "control": ["让", "请", "帮我", "麻烦", "把", "将"],
+        "control": ["让", "请", "帮我", "麻烦", "把", "将", "计时"],
         "action": {
             "turn_on": ["打开", "开启", "启动", "激活", "运行", "执行"],
             "turn_off": ["关闭", "关掉", "停止"],
@@ -182,7 +192,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
             model="ChatGLM Pro",
             entry_type=dr.DeviceEntryType.SERVICE,
         )
-        if self.entry.options.get(CONF_LLM_HASS_API):
+        if self.entry.options.get(CONF_LLM_HASS_API) and self.entry.options.get(CONF_LLM_HASS_API) != "none":
             self._attr_supported_features = conversation.ConversationEntityFeature.CONTROL
         self.last_request_time = 0
         self.max_tool_iterations = min(entry.options.get(CONF_MAX_TOOL_ITERATIONS, DEFAULT_MAX_TOOL_ITERATIONS), 5)
@@ -194,18 +204,25 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
         self.service_call_attempts = 0
         self._attr_native_value = "就绪"
         self._attr_extra_state_attributes = {"response": ""}
-        
+
+    @property
+    def supported_languages(self) -> list[str]:
+        return list(dict.fromkeys(languages + ["zh-cn", "zh-tw", "zh-hk", "en"])) if (languages := get_languages()) and "zh" in languages else languages
+
+    @property
+    def state_attributes(self):
+        attributes = super().state_attributes or {}
+        attributes["entity"] = "ZHIPU.AI"
+        if self._attr_response:
+            attributes["response"] = self._attr_response
+        return attributes
+
     def _filter_response_content(self, content: str) -> str:
-        content = re.sub(r'```[\s\S]*?```', '', content)
-        content = re.sub(r'{[\s\S]*?}', '', content)
-        content = re.sub(r'(?m)^(import|from|def|class)\s+.*$', '', content)
+        for pattern in _FILTER_PATTERNS:
+            content = pattern.sub('', content)
         if not content.strip():
             return "抱歉，暂不支持该操作。如果问题持续，可能需要调整指令。"
         return content.strip()
-
-    @property
-    def supported_languages(self) -> list[str] | Literal["*"]:
-        return MATCH_ALL
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -248,21 +265,6 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                     conversation_id=user_input.conversation_id
                 )
                 
-        intent_info = extract_intent_info(user_input.text, self.hass)
-        if intent_info:
-            result = await self.intent_handler.handle_intent(intent_info)
-            if result["success"]:
-                intent_response.async_set_speech(result["message"])
-            else:
-                intent_response.async_set_error(
-                    intent.IntentResponseErrorCode.NO_VALID_TARGETS,
-                    result["message"]
-                )
-            return conversation.ConversationResult(
-                response=intent_response,
-                conversation_id=user_input.conversation_id
-            )
-
         options = self.entry.options
         tools: list[ChatCompletionToolParam] | None = None
         user_name: str | None = None
@@ -278,9 +280,33 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
         try:
             if options.get(CONF_LLM_HASS_API) and options[CONF_LLM_HASS_API] != "none":
                 self.llm_api = await llm.async_get_api(self.hass, options[CONF_LLM_HASS_API], llm_context)
-                tools = [_format_tool(tool, self.llm_api.custom_serializer) for tool in self.llm_api.tools][:8]  
+                tools = [_format_tool(tool, self.llm_api.custom_serializer) for tool in self.llm_api.tools][:8]
+                
+                if not options.get(CONF_WEB_SEARCH, DEFAULT_WEB_SEARCH):
+                    if any(term in user_input.text.lower() for term in ["联网", "查询", "网页", "search"]):
+                        intent_response.async_set_speech("联网搜索功能已关闭，请在配置中开启后再试。")
+                        return conversation.ConversationResult(
+                            response=intent_response,
+                            conversation_id=user_input.conversation_id
+                        )
+                    tools = [tool for tool in tools if tool["function"]["name"] != "web_search"]
         except HomeAssistantError as err:
-            intent_response.async_set_error(intent.IntentResponseErrorCode.UNKNOWN, f"获取 LLM API 时出错，将继续使用基本功能：{err}")
+            intent_response.async_set_error(intent.IntentResponseErrorCode.UNKNOWN, f"获取 LLM API 时出错，将继续使用基本功能。")
+
+        intent_info = extract_intent_info(user_input.text, self.hass)
+        if intent_info:
+            result = await self.intent_handler.handle_intent(intent_info)
+            if result["success"]:
+                intent_response.async_set_speech(result["message"])
+            else:
+                intent_response.async_set_error(
+                    intent.IntentResponseErrorCode.NO_VALID_TARGETS,
+                    result["message"]
+                )
+            return conversation.ConversationResult(
+                response=intent_response,
+                conversation_id=user_input.conversation_id
+            )
 
         if user_input.conversation_id is None:
             conversation_id = ulid.ulid_now()
@@ -299,9 +325,11 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
             user_name = user.name
         try:
             er = entity_registry.async_get(self.hass)
+            entities_dict = {entity_id: er.async_get(entity_id) 
+                           for entity_id in self.hass.states.async_entity_ids()}
             exposed_entities = [
-                er.async_get(entity_id) for entity_id in self.hass.states.async_entity_ids()
-                if er.async_get(entity_id) and not er.async_get(entity_id).hidden
+                entity for entity_id, entity in entities_dict.items()
+                if entity and not entity.hidden
             ]
 
             prompt_parts = [
@@ -375,7 +403,6 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
 
         prompt = "\n".join(prompt_parts)
         LOGGER.info("Prompt Parts: %s", prompt_parts)
-        LOGGER.info("生成的 Prompt: %s", prompt)
 
         messages = [
             ChatCompletionMessageParam(role="system", content=prompt),
@@ -490,10 +517,18 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
             if self.llm_api and hasattr(self.llm_api, "async_call_tool"):
                 try:
                     result = await self.llm_api.async_call_tool(tool_input)
-                    if isinstance(result, dict) and "error" not in result:
-                        return result
+                    if isinstance(result, dict):
+                        if "error" not in result:
+                            return result
+                        else:
+                            LOGGER.warning("LLM API调用返回错误: %s", result["error"])
+                            return {"error": str(result["error"])}
+                except AttributeError as e:
+                    LOGGER.warning("LLM API调用参数错误: %s", str(e))
+                    return {"error": "工具调用参数错误"}
                 except Exception as e:
                     LOGGER.warning("LLM API调用失败: %s", str(e))
+                    return {"error": f"工具调用失败: {str(e)}"}
             
             if is_service_call(user_input):
                 service_info = extract_service_info(user_input, self.hass)
@@ -518,10 +553,21 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
             result = await agent.async_process(user_input)
             return result
         except Exception as err:
+            err_str = str(err).lower()
+            error_msg = "很抱歉，我现在无法正确处理您的请求。" + (
+                "与AI服务通信失败，请检查网络连接。" if any(x in err_str for x in ["通信", "communication", "connect", "socket"]) else
+                "网络连接不稳定，请稍后重试。" if any(x in err_str for x in ["timeout", "connection", "network"]) else
+                "API密钥可能已过期，请更新配置。" if any(x in err_str for x in ["api key", "token", "unauthorized", "authentication"]) else
+                "服务器暂时无响应，请稍后再试。" if any(x in err_str for x in ["server", "service", "503", "502", "500"]) else
+                "请求参数有误，请检查输入。" if any(x in err_str for x in ["request", "400", "404", "参数", "parameter"]) else
+                "已达到调用频率限制，请稍后重试。" if any(x in err_str for x in ["rate limit", "too many", "频率", "次数"]) else
+                "请稍后再试。与通信失败，请检查。"
+            )
+            
             intent_response = intent.IntentResponse(language=user_input.language)
             intent_response.async_set_error(
                 intent.IntentResponseErrorCode.UNKNOWN,
-                f"很抱歉，我现在无法正确处理您的请求。请稍后再试。错误: {err}"
+                error_msg
             )
             return conversation.ConversationResult(response=intent_response, conversation_id=conversation_id)
 
