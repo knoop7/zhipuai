@@ -1,5 +1,6 @@
 {
-  "name": "智谱清言",
+  "name": "智谱清言(ZHIPU.AI)",
   "render_readme": true,
+  "content_in_root": false,
   "homeassistant": "2024.11.0"
 }
