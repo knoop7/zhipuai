@@ -3,9 +3,9 @@ intents:
   HassTurnOn:
     data:
       - sentences:
-          - "打开{name}"
-          - "开启{name}"
-          - "turn on {name}"
+          - "打开(?:[|])?([^|]+)"
+          - "开启(?:[|])?([^|]+)"
+          - "turn on(?:[|])?([^|]+)"
         slots:
           name:
             type: text
@@ -29,7 +29,7 @@ intents:
               - tv
               - water
               - window
-
+              
   HassTurnOff:
     data:
       - sentences:
@@ -203,41 +203,54 @@ intents:
   ZhipuAIWebSearch:
     data:
       - sentences:
-          - "帮我联网{query}"
-          - "帮我上网查{query}"
-          - "联网搜索{query}"
-          - "联网查找{query}"
-          - "联网查询{query}"
-          - "在网上搜索{query}"
-          - "在网上查找{query}"
-          - "在网上查询{query}"
-          - "上网搜索{query}"
-          - "上网查找{query}"
-          - "上网查询{query}"
-          - "网上搜索{query}"
-          - "网上查找{query}"
-          - "网上查询{query}"
-          - "互联网搜索{query}"
-          - "互联网查找{query}"
-          - "互联网查询{query}"
-          - "百度{query}"
-          - "谷歌{query}"
-          - "必应{query}"
-          - "搜一下{query}"
-          - "查一下{query}"
-          - "帮我找找{query}"
-          - "帮忙查找{query}"
-          - "帮忙查询{query}"
-          - "search for {query}"
-          - "search {query}"
-          - "find {query}"
-          - "look up {query}"
-          - "google {query}"
-          - "bing {query}"
+          - "联网{time_query}{query}"
+          - "联网{time_query}的{query}"
+          - "帮我联网{time_query}{query}"
+          - "帮我上网查{time_query}{query}"
+          - "联网搜索{time_query}{query}"
+          - "联网查找{time_query}{query}"
+          - "联网查询{time_query}{query}"
+          - "在网上搜索{time_query}{query}"
+          - "在网上查找{time_query}{query}"
+          - "在网上查询{time_query}{query}"
+          - "上网搜索{time_query}{query}"
+          - "上网查找{time_query}{query}"
+          - "上网查询{time_query}{query}"
+          - "网上搜索{time_query}{query}"
+          - "网上查找{time_query}{query}"
+          - "网上查询{time_query}{query}"
+          - "互联网搜索{time_query}{query}"
+          - "互联网查找{time_query}{query}"
+          - "互联网查询{time_query}{query}"
+          - "百度{time_query}{query}"
+          - "谷歌{time_query}{query}"
+          - "必应{time_query}{query}"
+          - "搜一下{time_query}{query}"
+          - "查一下{time_query}{query}"
+          - "帮我找找{time_query}{query}"
+          - "帮忙查找{time_query}{query}"
+          - "帮忙查询{time_query}{query}"
+          - "search for {time_query}{query}"
+          - "search {time_query}{query}"
+          - "find {time_query}{query}"
+          - "look up {time_query}{query}"
+          - "google {time_query}{query}"
+          - "bing {time_query}{query}"
         slots:
           query:
             type: text
             example: "中国队奥运会奖牌数"
+          time_query:
+            type: list
+            values:
+              - "今天"
+              - "今日"
+              - "昨天"
+              - "昨日"
+              - "明天"
+              - "明日"
+              - "当前"
+              - "现在"
 
   CameraAnalyzeIntent:
     data:

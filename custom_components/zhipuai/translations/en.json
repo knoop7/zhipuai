@@ -28,7 +28,7 @@
         "description": "Select the entities to be analyzed and the number of days of historical data",
         "data": {
           "history_entities": "Select entity",
-          "history_days": "Number of days of historical data (1-3 days)"
+          "history_days": "Number of days of historical data (1-15 days)"
         }
       }
     },
@@ -39,9 +39,7 @@
       "cooldown_too_small": "The cooling time value {value} is too small, please set a value greater than or equal to 0!",
       "cooldown_too_large": "The cooling time value {value} is too large, please set a value less than or equal to 10!",
       "model_not_found": "The specified model could not be found",
-      "invalid_api_key": "API Key format error",
-      "invalid_days": "The number of historical data days must be between 1-3 days",
-      "no_entities": "Please select at least one entity"
+      "invalid_api_key": "API Key format error"
     },
     "abort": {
       "already_configured": "The device has been configured",
@@ -55,7 +53,7 @@
         "data": {
           "chat_model": "chat model",
           "temperature": "temperature",
-          "max_tokens": "Maximum number of tokens",
+          "max_tokens": "Maximum number of tiles",
           "max_history_messages": "Maximum number of historical messages",
           "top_p": "Top P",
           "prompt": "prompt word template",
@@ -72,21 +70,26 @@
           "max_tokens": "Set the maximum number of tokens returned in the response",
           "temperature": "Controls the randomness of the output (0-2)",
           "top_p": "Control output diversity (0-1)",
-          "llm_hass_api": "Select to enable Home Assistant LLM",
+          "llm_hass_api": "Opt-in Home Assistant LLM",
           "recommended": "Use recommended model settings",
           "max_history_messages": "Set the maximum number of historical messages to retain. Function: Control the memory function of input content. The memory function can ensure smooth contextual dialogue. Generally, it is best to control home equipment within 5 times. It is effective for requests that cannot be processed smoothly. For other daily conversations, the threshold can be set to more than 10 times.",
-          "max_tool_iterations": "Set the maximum number of tool calls in a single conversation. Its function is to set the call threshold for the system LLM call request. If an error occurs, it can ensure that the system will not get stuck. Especially for the design of various small hosts with weak performance, it is recommended to set it 20-30 times.",
+          "max_tool_iterations": "Set the maximum number of tool calls in a single session. Its function is to set the call threshold for the system LLM call request. If an error occurs, it can ensure that the system will not freeze. Especially for the design of various small hosts with weak performance, it is recommended to set it 20-30 times.",
           "cooldown_period": "Set the minimum interval between two conversation requests (0-10 seconds). Function: The request will be delayed for a period of time before being sent. It is recommended to set it within 3 seconds to ensure that the content sending request fails due to frequency factors."
         }
       },
       "history": {
         "title": "Entity historical data analysis configuration",
-        "description": "Provides **entity historical data analysis** in scenarios that **Jinja2 template** (Home Assistant's template system) cannot implement, ensuring that AI understands and analyzes your device data. For example: it can be used to automatically help you analyze home security , personnel activity trajectories, daily life summary, UI text template introduction, etc.\n\n• Support **AI-assisted analysis** historical data (let AI understand and analyze your device data)\n• Provide intelligent decision support for **device management**\n• It is recommended to control within the range of **1 day historical data** for best results",
+        "description": "Provides **entity historical data analysis** in scenarios that cannot be achieved by **Jinja2 template** (Home Assistant's template system) to ensure that AI understands and analyzes your device data. For example: it can be used to automatically help you analyze home security , personnel activity trajectories, daily life summary, UI text template introduction, etc.\n\n• Support **AI-assisted analysis** historical data (let AI understand and analyze your device data)\n• Provide intelligent decision support for **device management**\n• It is recommended to control within the range of **1 day historical data** for best results\n• **Special Reminder**: For environmental sensors that update frequently such as temperature, humidity, and illumination, please avoid selecting Prevent AI Overflow (you can set it according to the default 10 minutes)",
         "data": {
           "history_entities": "Select entity",
-          "history_days": "Number of days of historical data (1-15 days)"
+          "history_days": "Physical days (1-15 days)",
+          "history_interval": "Get the update interval of the storage entity"
         }
       }
+    },
+    "error": {
+      "no_entities": "Please select at least one entity",
+      "invalid_days": "The number of historical data days must be between 1-15 days"
     }
   },
   "exceptions": {

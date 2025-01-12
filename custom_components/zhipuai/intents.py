@@ -121,7 +121,10 @@ class CameraAnalyzeIntent(intent.IntentHandler):
 
 class WebSearchIntent(intent.IntentHandler):
     intent_type = INTENT_WEB_SEARCH
-    slot_schema = {vol.Required("query"): str}
+    slot_schema = {
+        vol.Required("query"): str,
+        vol.Optional("time_query"): str, 
+    }
 
     def __init__(self, hass: HomeAssistant):
         super().__init__()
@@ -140,12 +143,23 @@ class WebSearchIntent(intent.IntentHandler):
         await self._load_config()
         slots = self.async_validate_slots(intent_obj.slots)
         query = self.get_slot_value(slots.get("query"))
+        time_query = self.get_slot_value(slots.get("time_query"))  
         
         LOGGER.info("Web search info - 原始插槽:%s", slots)
         
         if not query:
             response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
             return self._set_error_response(response, ERROR_NO_QUERY, "未提供搜索内容")
+        
+        if time_query:
+            now = datetime.now()  # 简化时间处理
+            if time_query in ["昨天", "昨日", "yesterday"]:
+                date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+            elif time_query in ["明天", "明日", "tomorrow"]:
+                date = (now + timedelta(days=1)).strftime('%Y-%m-%d')
+            else:  
+                date = now.strftime('%Y-%m-%d')
+            query = f"{date} {query}"
         
         return await self._handle_web_search(intent_obj.hass, intent_obj, query)
 
@@ -189,14 +203,13 @@ class WebSearchIntent(intent.IntentHandler):
         return response
 
     def _set_speech_response(self, response, message) -> intent.IntentResponse:
-        if len(message.encode('utf-8')) > 12 * 1024:
-            message = message[:12 * 1024].rsplit(' ', 1)[0] + "..."
+        if len(message.encode('utf-8')) > 24 * 1024:
+            message = message[:24 * 1024].rsplit(' ', 1)[0] + "..."
         response.async_set_speech(message)
         return response
 
     def get_slot_value(self, slot_data):
         return None if not slot_data else slot_data.get('value') if isinstance(slot_data, dict) else getattr(slot_data, 'value', None) if hasattr(slot_data, 'value') else str(slot_data)
-
 
 class HassTimerIntent(intent.IntentHandler):
     intent_type = "HassTimerIntent"
@@ -247,15 +260,23 @@ class HassTimerIntent(intent.IntentHandler):
         minutes, is_absolute = parse_time(timer_name) or parse_time(duration) or (None, None)
         
         try:
-            data = {"duration": f"{minutes//60:02d}:{minutes%60:02d}:00"} if minutes and minutes > 0 else {}
-            target_time = datetime.now() + timedelta(minutes=minutes) if minutes and minutes > 0 else None
-            
-            time_str = (target_time.strftime('%H:%M') if is_absolute else 
-                       f"{minutes//60}小时{minutes%60}分钟后" if minutes and minutes > 0 and minutes//60 > 0 and minutes%60 > 0 else
-                       f"{minutes//60}小时后" if minutes and minutes > 0 and minutes//60 > 0 else
-                       f"{minutes%60}分钟后" if minutes and minutes > 0 else None)
-            
-            response.async_set_speech(f"好的，已设置{timer_name if timer_name else '计时器'}，将在{time_str}提醒您" if time_str else f"好的，已{action}计时器")
+            data = {}
+            if minutes is not None and minutes > 0:
+                hours = minutes // 60
+                mins = minutes % 60
+                data["duration"] = f"{hours:02d}:{mins:02d}:00"
+                target_time = datetime.now() + timedelta(minutes=minutes)
+                
+                if is_absolute:
+                    time_str = target_time.strftime('%H:%M')
+                    response.async_set_speech(f"好的，已设置{timer_name if timer_name else '计时器'}，将在{time_str}提醒您")
+                else:
+                    time_str = (f"{hours}小时{mins}分钟后" if hours > 0 and mins > 0 else
+                              f"{hours}小时后" if hours > 0 else
+                              f"{mins}分钟后")
+                    response.async_set_speech(f"好的，已设置{timer_name if timer_name else '计时器'}，将在{time_str}提醒您")
+            else:
+                response.async_set_speech(f"好的，已{action}计时器")
             await self.hass.services.async_call("timer", action, {"entity_id": timer_id, **data}, blocking=True)
             return response
         except Exception as e:
@@ -276,7 +297,7 @@ class HassTimerIntent(intent.IntentHandler):
         
         matches = re.findall(r'(\d+)\s*([小时分钟天hmd]|hour|minute|min|hr|h|m)s?', text)
         total_minutes = sum(int(value) * (60 if unit.startswith('h') or unit in ['小时'] else
-                                        1 if unit.startswith('m') or unit in ['分钟'] else
+                                        1 if unit.startswith('m') or unit in ['分钟'] or unit == 'm' else
                                         24 * 60) for value, unit in matches)
         return total_minutes or None, False
 
@@ -401,14 +422,50 @@ class IntentHandler:
         self.device_reg = device_registry.async_get(hass)
         self.entity_reg = entity_registry.async_get(hass)
 
+    climate_modes = {"cool": "制冷模式", "heat": "制热模式", "auto": "自动模式", "dry": "除湿模式", "fan_only": "送风模式", "off": "关闭"}
+    fan_modes = {"on_high": "高速风", "on_low": "低速风", "auto_high": "自动高速", "auto_low": "自动低速", "off": "关闭风速"}
+    media_actions = {"turn_on": "打开", "turn_off": "关闭", "volume_up": "调高音量", "volume_down": "调低音量", "volume_mute": "静音", "media_play": "播放", "media_pause": "暂停", "media_stop": "停止", "media_next_track": "下一曲", "media_previous_track": "上一曲", "select_source": "切换输入源", "shuffle_set": "随机播放", "repeat_set": "循环播放", "play_media": "播放媒体"}
+    cover_actions = {"open_cover": "打开", "close_cover": "关闭", "stop_cover": "停止", "toggle": "切换", "set_cover_position": "设置位置", "set_cover_tilt_position": "设置角度"}
+    vacuum_actions = {"start": "启动", "pause": "暂停", "stop": "停止", "return_to_base": "返回充电", "clean_spot": "定点清扫", "locate": "定位", "set_fan_speed": "设置吸力"}
+    fan_directions = {"forward": "正向", "reverse": "反向"}
+    automation_actions = {"turn_on": "启用", "turn_off": "禁用", "trigger": "触发", "toggle": "切换"}
+    boolean_actions = {"turn_on": "打开", "turn_off": "关闭", "toggle": "切换"}
+    timer_actions = {"start": "启动", "pause": "暂停", "cancel": "取消", "finish": "结束", "reload": "重新加载"}
+
     async def call_service(self, domain: str, service: str, data: Dict[str, Any]) -> Dict[str, Any]:
         try:
             entity_id = data.get("entity_id")
-            entity = self.hass.states.get(entity_id) if entity_id else None
+            entity = self.hass.states.get(entity_id)
             friendly_name = entity.attributes.get("friendly_name") if entity else "设备"
-            service_data = {**data, "entity_id": entity_id} if entity_id else data
-            await self.hass.services.async_call(domain, service, service_data, blocking=True)
-            return {"success": True, "message": f"已执行 {friendly_name} {service}"}
+            await self.hass.services.async_call(domain, service, {**data, "entity_id": entity_id} if entity_id else data, blocking=True)
+            target_temp = data.get('temperature')
+            current_temp = entity.attributes.get('current_temperature') if entity and domain == "climate" and service == "set_temperature" else None
+            _ = await self.hass.services.async_call(domain, "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "cool" if current_temp > target_temp else "heat"}, blocking=True) if current_temp is not None and target_temp is not None else None
+            return ({"success": True, "message": f"已设置 {friendly_name} {'制冷' if current_temp > target_temp else '制热'}模式，温度{target_temp}度"} if domain == "climate" and service == "set_temperature" and current_temp is not None and target_temp is not None else
+                    {"success": True, "message": f"已设置 {friendly_name} 温度{target_temp}度"} if domain == "climate" and service == "set_temperature" and target_temp is not None else
+                    {"success": True, "message": f"已执行 {friendly_name} {self.climate_modes.get(data.get('hvac_mode'), data.get('hvac_mode'))}"} if domain == "climate" and service == "set_hvac_mode" else
+                    {"success": True, "message": f"已执行 {friendly_name} {self.fan_modes.get(data.get('fan_mode'), data.get('fan_mode'))}"} if domain == "climate" and service == "set_fan_mode" else
+                    {"success": True, "message": f"已执行 {friendly_name} 湿度{data.get('humidity')}%"} if domain == "climate" and service == "set_humidity" else
+                    {"success": True, "message": f"已执行 {friendly_name} 亮度{int(data['brightness'] * 100 / 255)}%"} if domain == "light" and service == "turn_on" and "brightness" in data else
+                    {"success": True, "message": f"已设置 {friendly_name} {'颜色' if 'rgb_color' in data else '色温'}"} if domain == "light" and service == "turn_on" and ("rgb_color" in data or "color_temp" in data) else
+                    {"success": True, "message": f"已{'打开' if service == 'turn_on' else '关闭'} {friendly_name}"} if domain == "light" and service in ["turn_on", "turn_off"] else
+                    {"success": True, "message": f"已{self.media_actions.get(service, service)} {friendly_name}"} if domain == "media_player" else
+                    {"success": True, "message": f"已设置 {friendly_name} {'位置到' + str(data['position']) + '%' if 'position' in data else '角度到' + str(data['tilt_position']) + '%'}"} if domain == "cover" and ("position" in data or "tilt_position" in data) else
+                    {"success": True, "message": f"已{self.cover_actions.get(service, service)} {friendly_name}"} if domain == "cover" else
+                    {"success": True, "message": f"已{'打开' if service == 'turn_on' else '关闭'} {friendly_name}"} if domain == "switch" and service in ["turn_on", "turn_off"] else
+                    {"success": True, "message": f"已设置 {friendly_name} {'风速' + str(data['percentage']) + '%' if 'percentage' in data else data['preset_mode'] + '模式'}"} if domain == "fan" and service == "turn_on" and ("percentage" in data or "preset_mode" in data) else
+                    {"success": True, "message": f"已{'打开' if service == 'turn_on' else '关闭'} {friendly_name}"} if domain == "fan" and service in ["turn_on", "turn_off"] else
+                    {"success": True, "message": f"已{'开启' if data.get('oscillating') else '关闭'} {friendly_name} 摆风"} if domain == "fan" and service == "oscillate" else
+                    {"success": True, "message": f"已设置 {friendly_name} {self.fan_directions.get(data.get('direction'), data.get('direction'))}旋转"} if domain == "fan" and service == "set_direction" else
+                    {"success": True, "message": f"已启动场景 {friendly_name}"} if domain == "scene" and service == "turn_on" else
+                    {"success": True, "message": f"已执行脚本 {friendly_name}"} if domain == "script" and service in ["turn_on", "start"] else
+                    {"success": True, "message": f"已{self.automation_actions.get(service, service)}自动化 {friendly_name}"} if domain == "automation" else
+                    {"success": True, "message": f"已{self.boolean_actions.get(service, service)} {friendly_name}"} if domain == "input_boolean" else
+                    {"success": True, "message": f"已{self.timer_actions.get(service, service)}计时器 {friendly_name}"} if domain == "timer" else
+                    {"success": True, "message": f"已设置 {friendly_name} 吸力为{data['fan_speed']}"} if domain == "vacuum" and service == "set_fan_speed" and "fan_speed" in data else
+                    {"success": True, "message": f"已{self.vacuum_actions.get(service, service)} {friendly_name}"} if domain == "vacuum" else
+                    {"success": True, "message": f"已按下 {friendly_name}"} if domain == "button" and service == "press" else
+                    {"success": True, "message": f"已执行 {friendly_name} {service}"})
         except Exception as e:
             return {"success": False, "message": str(e)}
 

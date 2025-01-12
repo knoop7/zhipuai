@@ -45,6 +45,8 @@ from .const import (
     DEFAULT_HISTORY_DAYS,
     CONF_WEB_SEARCH,
     DEFAULT_WEB_SEARCH,
+    CONF_HISTORY_INTERVAL,
+    DEFAULT_HISTORY_INTERVAL,
 )
 
 
@@ -84,7 +86,7 @@ def _format_tool(tool: llm.Tool, custom_serializer: Any | None) -> ChatCompletio
 
 def is_service_call(user_input: str) -> bool:
     patterns = {
-        "control": ["让", "请", "帮我", "麻烦", "把", "将", "计时"],
+        "control": ["让", "请", "帮我", "麻烦", "把", "将", "计时", "要", "想", "希望", "需要", "能否", "能不能", "可不可以", "可以", "帮忙", "给我", "替我", "为我", "我要", "我想", "我希望"],
         "action": {
             "turn_on": ["打开", "开启", "启动", "激活", "运行", "执行"],
             "turn_off": ["关闭", "关掉", "停止"],
@@ -92,89 +94,122 @@ def is_service_call(user_input: str) -> bool:
             "press": ["按", "按下", "点击"],
             "select": ["选择", "下一个", "上一个", "第一个", "最后一个"],
             "trigger": ["触发", "调用"],
-            "media": ["暂停", "继续播放", "播放", "停止", "下一首", "下一曲", "下一个", "切歌", "换歌","上一首", "上一曲", "上一个", "返回上一首", "音量"]
+            "media": ["暂停", "继续播放", "播放", "停止", "下一首", "下一曲", "下一个", "切歌", "换歌","上一首", "上一曲", "上一个", "返回上一首", "音量"],
+            "climate": ["制冷", "制热", "风速", "模式", "调温", "调到", "设置", 
+                      "空调", "冷气", "暖气", "冷风", "暖风", "自动模式", "除湿", "送风",
+                      "高档", "低档", "高速", "低速", "自动高", "自动低", "强劲", "自动"]
         }
     }
-    return bool(user_input and (any(k in user_input for k in patterns["control"]) or any(k in v for v in patterns["action"].values() for k in v)))
+    
+    has_pattern = bool(user_input and (
+        any(k in user_input for k in patterns["control"]) or 
+        any(k in user_input for action in patterns["action"].values() for k in (action if isinstance(action, list) else []))
+    ))
+    
+    has_climate = (
+        "空调" in user_input and (
+            bool(re.search(r"\d+", user_input)) or  
+            any(k in user_input for k in patterns["action"]["climate"])  
+        )
+    )
+    
+    has_entity = bool(re.search(r"([\w_]+\.[\w_]+)", user_input))
+    
+    return has_pattern or has_climate or has_entity
 
 def extract_service_info(user_input: str, hass: HomeAssistant) -> Optional[Dict[str, Any]]:
     def find_entity(domain: str, text: str) -> Optional[str]:
         text = text.lower()
-        for e_id in hass.states.async_entity_ids(domain):
-            state = hass.states.get(e_id)
-            friendly_name = state.attributes.get("friendly_name", "").lower()
-            entity_name = e_id.split(".")[1].lower()
-            if (text in entity_name or text in friendly_name or 
-                entity_name in text or friendly_name in text):
-                return e_id
-        return None
+        return next((entity_id for entity_id in hass.states.async_entity_ids(domain) 
+                    if text in entity_id.split(".")[1].lower() or 
+                    text in hass.states.get(entity_id).attributes.get("friendly_name", "").lower() or
+                    entity_id.split(".")[1].lower() in text or
+                    hass.states.get(entity_id).attributes.get("friendly_name", "").lower() in text), None)
 
     def clean_text(text: str, patterns: List[str]) -> str:
         control_words = ["让", "请", "帮我", "麻烦", "把", "将"]
-        for word in patterns + control_words:
-            text = text.replace(word, "")
-        return text.strip()
+        return "".join(char for char in text if not any(word in char for word in patterns + control_words)).strip()
 
     if not is_service_call(user_input):
         return None
 
-    media_patterns = {
-        "暂停": "media_pause",
-        "继续播放": "media_play",
-        "播放": "media_play",
-        "停止": "media_stop",
-        "下一首": "media_next_track",
-        "下一曲": "media_next_track",
-        "下一个": "media_next_track",
-        "切歌": "media_next_track",
-        "换歌": "media_next_track",
-        "上一首": "media_previous_track",
-        "上一曲": "media_previous_track",
-        "上一个": "media_previous_track",
-        "返回上一首": "media_previous_track",
-        "音量": "volume_set"
-    }
-    for pattern, service in media_patterns.items():
-        if pattern in user_input.lower():
-            if entity_id := find_entity("media_player", user_input):
-                if service == "volume_set":
-                    volume_match = re.search(r'(\d+)', user_input)
-                    if volume_match:
-                        volume = int(volume_match.group(1)) / 100
-                        return {"domain": "media_player", "service": service, "data": {"entity_id": entity_id, "volume_level": volume}}
-                return {"domain": "media_player", "service": service, "data": {"entity_id": entity_id}}
+    media_patterns = {"暂停": "media_pause", "继续播放": "media_play", "播放": "media_play", "停止": "media_stop",
+                     "下一首": "media_next_track", "下一曲": "media_next_track", "下一个": "media_next_track",
+                     "切歌": "media_next_track", "换歌": "media_next_track", "上一首": "media_previous_track",
+                     "上一曲": "media_previous_track", "上一个": "media_previous_track",
+                     "返回上一首": "media_previous_track", "音量": "volume_set"}
+    
+    if entity_id := find_entity("media_player", user_input):
+        for pattern, service in media_patterns.items():
+            if pattern in user_input.lower():
+                return ({"domain": "media_player", "service": service, "data": {"entity_id": entity_id, "volume_level": int(re.search(r'(\d+)', user_input).group(1)) / 100}} 
+                        if service == "volume_set" and re.search(r'(\d+)', user_input) else 
+                        {"domain": "media_player", "service": service, "data": {"entity_id": entity_id}})
 
-    button_patterns = ["按", "按下", "点击"]
-    if any(p in user_input for p in button_patterns):
-        if entity_id := (re.search(r'(button\.\w+)', user_input).group(1) if re.search(r'(button\.\w+)', user_input) 
-            else find_entity("button", clean_text(user_input, button_patterns))):
-            return {"domain": "button", "service": "press", "data": {"entity_id": entity_id}}
+    if any(p in user_input for p in ["按", "按下", "点击"]):
+        return {"domain": "button", "service": "press", "data": {"entity_id": (re.search(r'(button\.\w+)', user_input).group(1) if re.search(r'(button\.\w+)', user_input) else 
+                find_entity("button", clean_text(user_input, ["按", "按下", "点击"])))}} if (re.search(r'(button\.\w+)', user_input) or 
+                find_entity("button", clean_text(user_input, ["按", "按下", "点击"]))) else None
 
-    select_patterns = {
-        "下一个": ("select_next", True),
-        "上一个": ("select_previous", True), 
-        "第一个": ("select_first", False),
-        "最后一个": ("select_last", False),
-        "选择": ("select_option", False)
-    }
-    if any(p in user_input for p in select_patterns.keys()):
-        if entity_id := find_entity("select", user_input):
-            pattern = next((k for k in select_patterns.keys() if k in user_input), "选择")
-            service, cycle = select_patterns[pattern]
-            return {"domain": "select", "service": service, "data": {"entity_id": entity_id, "cycle": cycle}}
+    select_patterns = {"下一个": ("select_next", True), "上一个": ("select_previous", True),
+                      "第一个": ("select_first", False), "最后一个": ("select_last", False),
+                      "选择": ("select_option", False)}
+    
+    if entity_id := find_entity("select", user_input):
+        return {"domain": "select", "service": select_patterns.get(next((k for k in select_patterns.keys() if k in user_input), "选择"))[0],
+                "data": {"entity_id": entity_id, "cycle": select_patterns.get(next((k for k in select_patterns.keys() if k in user_input), "选择"))[1]}} if any(p in user_input for p in select_patterns.keys()) else None
 
-    automation_patterns = ["触发", "调用", "执行", "运行", "启动"]
-    if any(p in user_input for p in automation_patterns):
-        name = clean_text(user_input, automation_patterns + ["脚本", "自动化", "场景"])
-        if "脚本" in user_input.lower():
-            if entity_id := find_entity("script", name):
-                return {"domain": "script", "service": "turn_on", "data": {"entity_id": entity_id}}
-        for domain, service in [("automation", "trigger"), ("script", "turn_on"), ("scene", "turn_on")]:
-            if entity_id := find_entity(domain, name):
-                return {"domain": domain, "service": service, "data": {"entity_id": entity_id}}
+    if any(p in user_input for p in ["触发", "调用", "执行", "运行", "启动"]):
+        name = clean_text(user_input, ["触发", "调用", "执行", "运行", "启动", "脚本", "自动化", "场景"])
+        return next(({"domain": domain, "service": service, "data": {"entity_id": entity_id}}
+                    for domain, service in [("script", "turn_on"), ("automation", "trigger"), ("scene", "turn_on")]
+                    if (entity_id := find_entity(domain, name))), None)
+
+    climate_patterns = {"温度": "set_temperature", "制冷": "set_hvac_mode", "制热": "set_hvac_mode",
+                       "风速": "set_fan_mode", "模式": "set_hvac_mode", "湿度": "set_humidity",
+                       "调温": "set_temperature", "调到": "set_temperature", "设置": "set_hvac_mode",
+                       "度": "set_temperature"}
+
+    if entity_id := find_entity("climate", user_input):
+        temperature_match = re.search(r'(\d+)(?:\s*度)?', user_input)
+        if temperature_match and ("温度" in user_input or "调温" in user_input or "调到" in user_input or "度" in user_input):
+            temperature = int(temperature_match.group(1))
+            current_temp = hass.states.get(entity_id).attributes.get('current_temperature')
+            hvac_mode = "cool" if current_temp > temperature else "heat" if current_temp is not None else None
+            return {"domain": "climate", "service": "set_temperature", 
+                    "data": {"entity_id": entity_id, "temperature": temperature, "hvac_mode": hvac_mode}} if hvac_mode else {"domain": "climate", "service": "set_temperature", 
+                    "data": {"entity_id": entity_id, "temperature": temperature}}
+
+        for pattern, service in climate_patterns.items():
+            if pattern in user_input.lower():
+                if service == "set_temperature":
+                    temperature_match = re.search(r'(\d+)', user_input)
+                    if temperature_match:
+                        temperature = int(temperature_match.group(1))
+                        current_temp = hass.states.get(entity_id).attributes.get('current_temperature')
+                        hvac_mode = "cool" if current_temp > temperature else "heat" if current_temp is not None else None
+                        return {"domain": "climate", "service": service, 
+                                "data": {"entity_id": entity_id, "temperature": temperature, "hvac_mode": hvac_mode}} if hvac_mode else {"domain": "climate", "service": service, 
+                                "data": {"entity_id": entity_id, "temperature": temperature}}
+                elif service == "set_hvac_mode":
+                    hvac_mode_map = {"制冷": "cool", "制热": "heat", "自动": "auto", "除湿": "dry",
+                                   "送风": "fan_only", "关闭": "off", "停止": "off"}
+                    return {"domain": "climate", "service": service, 
+                            "data": {"entity_id": entity_id, "hvac_mode": next((mode for cn, mode in hvac_mode_map.items() if cn in user_input), "auto")}}
+                elif service == "set_fan_mode":
+                    fan_mode_map = {"高档": "on_high", "高速": "on_high", "强劲": "on_high",
+                                  "低档": "on_low", "低速": "on_low", "自动高": "auto_high",
+                                  "自动高档": "auto_high", "自动低": "auto_low", "自动低档": "auto_low",
+                                  "关闭": "off", "停止": "off"}
+                    return {"domain": "climate", "service": service, 
+                            "data": {"entity_id": entity_id, "fan_mode": next((mode for cn, mode in fan_mode_map.items() if cn in user_input), "auto_low")}}
+                elif service == "set_humidity":
+                    humidity_match = re.search(r'(\d+)', user_input)
+                    return {"domain": "climate", "service": service, 
+                            "data": {"entity_id": entity_id, "humidity": int(humidity_match.group(1))}} if humidity_match else None
 
     return None
-    
+
 class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.AbstractConversationAgent):
     _attr_has_entity_name = True
     _attr_name = None
@@ -352,48 +387,59 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                 days = self.entry.options.get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
                 
                 if entities:
-                    end_time = datetime.now()
-                    start_time = end_time - timedelta(days=days)
-                    
-                    history_text = []
-                    history_text.append(f"\n以下是询问者所关注的实体的历史数据分析（{days}天内）：")
-                    
-                    instance = get_instance(self.hass)
-                    history_data = await instance.async_add_executor_job(
-                        get_significant_states,
-                        self.hass,
-                        start_time,
-                        end_time,
-                        entities,
-                        None,
-                        True,
-                        True
-                    )
+                    try:
+                        end_time = datetime.now()
+                        start_time = end_time - timedelta(days=days)
+                        
+                        history_text = []
+                        history_text.append(f"\n以下是询问者所关注的实体的历史数据分析（{days}天内）：")
+                        
+                        instance = get_instance(self.hass)
+                        history_data = await instance.async_add_executor_job(
+                            get_significant_states,
+                            self.hass,
+                            start_time,
+                            end_time,
+                            entities,
+                            None,
+                            True,
+                            True
+                        )
 
-                    for entity_id in entities:
-                        state = self.hass.states.get(entity_id)
-                        if state is None:
-                            continue
-                            
-                        if entity_id in history_data:
-                            states = history_data[entity_id]
-                            history_text.append(f"\n{entity_id}:")
-                            for state in states:
-                                if state is None:
-                                    continue
+                        for entity_id in entities:
+                            state = self.hass.states.get(entity_id)
+                            if state is None or entity_id not in history_data or not history_data[entity_id]:
+                                history_text.append(f"\n{entity_id} (当前状态):")
                                 history_text.append(
-                                    f"- {state.state} ({state.last_updated.strftime('%Y-%m-%d %H:%M:%S')})"
+                                    f"- {state.state if state else 'unknown'} ({state.last_updated.astimezone().strftime('%m-%d %H:%M:%S') if state else 'unknown'})"
                                 )
-                        else:
-                            history_text.append(f"\n{entity_id} (当前状态):")
-                            history_text.append(
-                                f"- {state.state} ({state.last_updated.strftime('%Y-%m-%d %H:%M:%S')})"
-                            )
-                    
-                    prompt_parts.append("\n".join(history_text))
+                            else:
+                                states = history_data[entity_id]
+                                history_text.append(f"\n{entity_id} (历史状态变化):")
+                                last_state_text = None
+                                last_time = None
+                                for state in states:
+                                    if state.state == "unavailable":
+                                        continue
+                                        
+                                    current_time = state.last_updated.astimezone()
+                                    interval_minutes = self.entry.options.get(CONF_HISTORY_INTERVAL, DEFAULT_HISTORY_INTERVAL)
+                                    if last_time and (current_time - last_time).total_seconds() < interval_minutes * 60:
+                                        continue
+                                        
+                                    state_text = f"- {state.state} ({current_time.strftime('%m-%d %H:%M:%S')})"
+                                    if state_text != last_state_text:
+                                        history_text.append(state_text)
+                                        last_state_text = state_text
+                                        last_time = current_time
+                                if len(history_text) > 1:
+                                    prompt_parts.append("\n".join(history_text))
+                            
+                    except Exception as err:
+                        LOGGER.warning(f"获取历史数据时出错: {err}")
 
         except template.TemplateError as err:
-            content_message = f"抱歉，我的模板有问题： {err}"
+            content_message = f"抱歉，Jinja2 模板解析出错，请检查配置模板，有实体信息配置导致获取失败： {err}"
             filtered_content = self._filter_response_content(content_message)
             intent_response.async_set_error(intent.IntentResponseErrorCode.UNKNOWN, filtered_content)
             return conversation.ConversationResult(response=intent_response, conversation_id=conversation_id)
@@ -402,7 +448,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
             prompt_parts.append(self.llm_api.api_prompt)
 
         prompt = "\n".join(prompt_parts)
-        LOGGER.info("Prompt Parts: %s", prompt_parts)
+        LOGGER.info("提示部件： %s", prompt_parts)
 
         messages = [
             ChatCompletionMessageParam(role="system", content=prompt),
@@ -553,16 +599,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
             result = await agent.async_process(user_input)
             return result
         except Exception as err:
-            err_str = str(err).lower()
-            error_msg = "很抱歉，我现在无法正确处理您的请求。" + (
-                "与AI服务通信失败，请检查网络连接。" if any(x in err_str for x in ["通信", "communication", "connect", "socket"]) else
-                "网络连接不稳定，请稍后重试。" if any(x in err_str for x in ["timeout", "connection", "network"]) else
-                "API密钥可能已过期，请更新配置。" if any(x in err_str for x in ["api key", "token", "unauthorized", "authentication"]) else
-                "服务器暂时无响应，请稍后再试。" if any(x in err_str for x in ["server", "service", "503", "502", "500"]) else
-                "请求参数有误，请检查输入。" if any(x in err_str for x in ["request", "400", "404", "参数", "parameter"]) else
-                "已达到调用频率限制，请稍后重试。" if any(x in err_str for x in ["rate limit", "too many", "频率", "次数"]) else
-                "请稍后再试。与通信失败，请检查。"
-            )
+            error_msg = "很抱歉，我现在无法正确处理您的请求，请稍后再试"
             
             intent_response = intent.IntentResponse(language=user_input.language)
             intent_response.async_set_error(

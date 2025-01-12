@@ -28,7 +28,7 @@
         "description": "选择需要分析的实体和历史数据天数",
         "data": {
           "history_entities": "选择实体",
-          "history_days": "历史数据天数 (1-3天)"
+          "history_days": "历史数据天数 (1-15天)"
         }
       }
     },
@@ -39,9 +39,7 @@
       "cooldown_too_small": "冷却时间值 {value} 太小，请设置大于等于 0 的值！",
       "cooldown_too_large": "冷却时间值 {value} 太大，请设置小于等于 10 的值！",
       "model_not_found": "找不到指定的模型",
-      "invalid_api_key": "API Key 格式错误",
-      "invalid_days": "历史数据天数必须在1-3天之间",
-      "no_entities": "请至少选择一个实体"
+      "invalid_api_key": "API Key 格式错误"
     },
     "abort": {
       "already_configured": "设备已经配置",
@@ -81,17 +79,22 @@
       },
       "history": {
         "title": "实体历史数据分析 配置",
-        "description": "在**Jinja2模版**（Home Assistant的模板系统）无法实现的场景下提供**实体历史数据分析**，保证AI理解并分析您的设备数据，举例：可以用于自动化帮您分析家中安防、人员活动轨迹，日常生活总结，UI文本模版介绍等。\n\n• 支持**AI辅助分析**历史数据（让AI理解并分析您的设备数据）\n• 为**设备管理**提供智能决策支持\n• 建议控制在**1天历史数据**范围内以获得最佳效果",
+        "description": "在**Jinja2模版**（Home Assistant的模板系统）无法实现的场景下提供**实体历史数据分析**，保证AI理解并分析您的设备数据，举例：可以用于自动化帮您分析家中安防、人员活动轨迹，日常生活总结，UI文本模版介绍等。\n\n• 支持**AI辅助分析**历史数据（让AI理解并分析您的设备数据）\n• 为**设备管理**提供智能决策支持\n• 建议控制在**1天历史数据**范围内以获得最佳效果\n• **特别提醒**：对于温湿度、光照度等频繁更新的环境传感器，请避免选择防止AI溢出(可以按照默认10分钟设置）",
         "data": {
           "history_entities": "选择实体",
-          "history_days": "历史数据天数 (1-15天)"
+          "history_days": "获取实体在存储库中的天数范围 (1-15天)",
+          "history_interval": "获取实体在存储库中的更新时间（分钟）"
         }
       }
-    }
   },
-  "exceptions": {
-    "invalid_config_entry": {
-      "message": "提供的配置条目无效。得到的是 {config_entry}"
-    }
+  "error": {
+    "no_entities": "请选择至少一个实体",
+    "invalid_days": "历史数据天数必须在 1-15天之间"
   }
+},
+"exceptions": {
+  "invalid_config_entry": {
+    "message": "提供的配置条目无效。得到的是 {config_entry}"
+  }
+}
 }

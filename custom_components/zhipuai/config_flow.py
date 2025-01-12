@@ -49,6 +49,8 @@ from .const import (
     DEFAULT_HISTORY_ANALYSIS,
     DEFAULT_HISTORY_DAYS,
     MAX_HISTORY_DAYS,
+    CONF_HISTORY_INTERVAL,
+    DEFAULT_HISTORY_INTERVAL,
 )
 
 ZHIPUAI_MODELS = [
@@ -292,6 +294,10 @@ class ZhipuAIOptionsFlow(OptionsFlow):
                         custom_value=False,
                     )
                 ),
+                vol.Optional(
+                    CONF_HISTORY_INTERVAL,
+                    default=current_options.get(CONF_HISTORY_INTERVAL, DEFAULT_HISTORY_INTERVAL),
+                ): vol.Coerce(int),
                 vol.Required(
                     CONF_HISTORY_DAYS,
                     default=current_options.get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
