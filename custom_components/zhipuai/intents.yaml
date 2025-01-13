@@ -1,0 +1,352 @@
+language: "zh-cn"
+intents:
+  HassTurnOn:
+    data:
+      - sentences:
+          - "打开(?:[|])?([^|]+)"
+          - "开启(?:[|])?([^|]+)"
+          - "turn on(?:[|])?([^|]+)"
+        slots:
+          name:
+            type: text
+          device_class:
+            type: list
+            values:
+              - awning
+              - blind
+              - curtain
+              - damper
+              - door
+              - garage
+              - gas
+              - gate
+              - outlet
+              - receiver
+              - shade
+              - shutter
+              - speaker
+              - switch
+              - tv
+              - water
+              - window
+              
+  HassTurnOff:
+    data:
+      - sentences:
+          - "关闭{name}"
+          - "关掉{name}"
+          - "turn off {name}"
+        slots:
+          name:
+            type: text
+          device_class:
+            type: list
+            values:
+              - awning
+              - blind
+              - curtain
+              - damper
+              - door
+              - garage
+              - gas
+              - gate
+              - outlet
+              - receiver
+              - shade
+              - shutter
+              - speaker
+              - switch
+              - tv
+              - water
+              - window
+
+  MassPlayMediaAssist:
+    data:
+      - sentences:
+          - "在<area><play>(歌手|艺术家){artist}的(歌|音乐)"
+          - "在<area><play><album>{album}"
+          - "在<area><play><track>{track}"
+          - "在<area><play><playlist>{playlist}"
+          - "在<area><play><radio_station>{radio}"
+        expansion_rules:
+          play: "(play|播放|收听)"
+          track: "(track|歌曲|音乐)"
+          album: "(album|专辑|唱片|合集|单曲)"
+          playlist: "(playlist|播放列表)"
+          radio_station: "(radio_station|广播电台|电台|频道)"
+
+      - sentences:
+          - "用{name}<play>(歌手|艺术家){artist}的(歌|音乐)"
+          - "用{name}<play><album>{album}"
+          - "用{name}<play><track>{track}"
+          - "用{name}<play><playlist>{playlist}"
+          - "用{name}<play><radio_station>{radio}"
+        expansion_rules:
+          play: "(play|播放|收听)"
+          track: "(track|歌曲|音乐)"
+          album: "(album|专辑|唱片|合集|单曲)"
+          playlist: "(playlist|播放列表)"
+          radio_station: "(radio_station|广播电台|电台|频道)"
+        requires_context:
+          domain: "media_player"
+
+      - sentences:
+          - "用在<area>[里]的{name}<play>(歌手|艺术家){artist}的(歌|音乐)"
+          - "用在<area>[里]的{name}<play><album>{album}"
+          - "用在<area>[里]的{name}<play><track>{track}"
+          - "用在<area>[里]的{name}<play><playlist>{playlist}"
+          - "用在<area>[里]的{name}<play><radio_station>{radio}"
+        expansion_rules:
+          play: "(play|播放|收听)"
+          track: "(track|歌曲|音乐)"
+          album: "(album|专辑|唱片|合集|单曲)"
+          playlist: "(playlist|播放列表)"
+          radio_station: "(radio_station|广播电台|电台|频道)"
+
+      - sentences:
+          - "<play>(歌手|艺术家){artist}的(歌|音乐)"
+          - "<play><album>{album}"
+          - "<play><track>{track}"
+          - "<play><playlist>{playlist}"
+          - "<play><radio_station>{radio}"
+        expansion_rules:
+          play: "(play|播放|收听)"
+          track: "(track|歌曲|音乐)"
+          album: "(album|专辑|唱片|合集|单曲)"
+          playlist: "(playlist|播放列表)"
+          radio_station: "(radio_station|广播电台|电台|频道)"
+        requires_context:
+          area:
+            slot: true
+
+  ZHIPUAI_CoverGetStateIntent:
+    data:
+      - sentences:
+          - "[<area>]{name}(是|是不是){cover_states:state}[吗|不]"
+        response: one_yesno
+        requires_context:
+          domain: cover
+        slots:
+          domain: cover
+
+      - sentences:
+          - "[{area}][有|有没有]{cover_classes:device_class}[是|是不是]{cover_states:state}[吗|不]"
+        response: any
+        slots:
+          domain: cover
+
+      - sentences:
+          - "[<area>][<all>]{cover_classes:device_class}[是|是不是]都[是]{cover_states:state}[吗|不]"
+          - "<all><area>{cover_classes:device_class}[是|是不是]都[是]{cover_states:state}[吗|不]"
+        response: all
+        slots:
+          domain: cover
+
+      - sentences:
+          - "[<area>]<which>{cover_classes:device_class}[是]{cover_states:state}"
+          - "<which>[<area>]{cover_classes:device_class}[是]{cover_states:state}"
+        response: which
+        slots:
+          domain: cover
+
+      - sentences:
+          - "[{area}]<how_many_is>{cover_classes:device_class}[是]{cover_states:state}"
+          - "<how_many_is>[<area>]{cover_classes:device_class}[是]{cover_states:state}"
+        response: how_many
+        slots:
+          domain: cover
+
+  ZHIPUAI_CoverSetPositionIntent:
+    data:
+      - sentences:
+          - "(<numeric_value_set>|<open>|<close>) <name> [position] <to> <position>"
+        requires_context:
+          domain: cover
+        slots:
+          domain: cover
+
+      - sentences:
+          - "(<numeric_value_set>|<open>|<close>) <area> {cover_classes:device_class}[ position] <to> <position>"
+        slots:
+          domain: cover
+
+      - sentences:
+          - "[<let>] <name> (<numeric_value_set>|<open>|<close>) [position] <to> <position>"
+        requires_context:
+          domain: cover
+        slots:
+          domain: cover
+
+      - sentences:
+          - "[<let>]<area>{cover_classes:device_class}(<numeric_value_set>|<open>|<close>)[ position] <to> <position>"
+        slots:
+          domain: cover
+
+  HassGetState:
+    data:
+      - sentences:
+          - "[查询|查看][<area>]{name}[的]状态"
+          - "[<area>]{name}[现在|当前]是什么状态"
+          - "[<area>]{name}[怎么样|如何]"
+        slots:
+          domain: all
+
+      - sentences:
+          - "[<area>]{name}[的锁](是不是|有没有){lock_states:state}"
+          - "[<area>]{name}[的锁][是|有]{lock_states:state}[吗|不]"
+        response: one_yesno
+        requires_context:
+          domain: lock
+        slots:
+          domain: lock
+
+  ZhipuAIWebSearch:
+    data:
+      - sentences:
+          - "联网{time_query}{query}"
+          - "联网{time_query}的{query}"
+          - "帮我联网{time_query}{query}"
+          - "帮我上网查{time_query}{query}"
+          - "联网搜索{time_query}{query}"
+          - "联网查找{time_query}{query}"
+          - "联网查询{time_query}{query}"
+          - "在网上搜索{time_query}{query}"
+          - "在网上查找{time_query}{query}"
+          - "在网上查询{time_query}{query}"
+          - "上网搜索{time_query}{query}"
+          - "上网查找{time_query}{query}"
+          - "上网查询{time_query}{query}"
+          - "网上搜索{time_query}{query}"
+          - "网上查找{time_query}{query}"
+          - "网上查询{time_query}{query}"
+          - "互联网搜索{time_query}{query}"
+          - "互联网查找{time_query}{query}"
+          - "互联网查询{time_query}{query}"
+          - "百度{time_query}{query}"
+          - "谷歌{time_query}{query}"
+          - "必应{time_query}{query}"
+          - "搜一下{time_query}{query}"
+          - "查一下{time_query}{query}"
+          - "帮我找找{time_query}{query}"
+          - "帮忙查找{time_query}{query}"
+          - "帮忙查询{time_query}{query}"
+          - "search for {time_query}{query}"
+          - "search {time_query}{query}"
+          - "find {time_query}{query}"
+          - "look up {time_query}{query}"
+          - "google {time_query}{query}"
+          - "bing {time_query}{query}"
+        slots:
+          query:
+            type: text
+            example: "中国队奥运会奖牌数"
+          time_query:
+            type: list
+            values:
+              - "今天"
+              - "今日"
+              - "昨天"
+              - "昨日"
+              - "明天"
+              - "明日"
+              - "当前"
+              - "现在"
+
+  CameraAnalyzeIntent:
+    data:
+      - sentences:
+          - "查看{camera_name}的{question}"
+          - "看看{camera_name}的{question}"
+          - "告诉我{camera_name}的{question}"
+          - "{camera_name}现在{question}"
+          - "分析{camera_name}的{question}"
+          - "查看{camera_name}的{question}"
+          - "检查{camera_name}的{question}"
+          - "观察{camera_name}的{question}"
+          - "识别{camera_name}的{question}"
+          - "告诉我{camera_name}的{question}"
+          - "帮我看看{camera_name}的{question}"
+          - "帮我分析{camera_name}的{question}"
+          - "帮我检查{camera_name}的{question}"
+          - "帮我识别{camera_name}的{question}"
+          - "{camera_name}那里的{question}"
+          - "{camera_name}现在的{question}"
+          - "{camera_name}目前的{question}"
+          - "看一下{camera_name}的{question}"
+          - "分析一下{camera_name}的{question}"
+          - "检查一下{camera_name}的{question}"
+          - "观察一下{camera_name}的{question}"
+          - "识别一下{camera_name}的{question}"
+          - "分析下{camera_name}{question}"
+          - "查看下{camera_name}{question}"
+          - "看看{camera_name}{question}"
+          - "analyze {camera_name} {question}"
+          - "check {camera_name} {question}"
+          - "look at {camera_name} {question}"
+          - "identify {camera_name} {question}"
+        slots:
+          camera_name:
+            type: text
+          question:
+            type: text
+    speech:
+      text: "正在分析摄像头画面，请稍等..."
+
+  HassTimerIntent:
+    action:
+      - timer
+    speech:
+      text: 设置计时器
+    slots:
+      action:
+        type: text
+      duration:
+        type: text
+      timer_name:
+        type: text
+    templates:
+      - "[设置|创建|添加|开始|启动]{duration}[提醒|记录|通知]{timer_name}"
+      - "[设置|创建|添加|开始|启动][提醒|记录|通知]{duration}{timer_name}"
+      - "{duration}[提醒|记录|通知]{timer_name}"
+      - "[设置|创建|添加|开始|启动][提醒|记录|通知]{timer_name}{duration}"
+      - "[设置|创建|添加|开始|启动]一个{duration}的[计时器|定时器]{timer_name}"
+      - "[设置|创建|添加|开始|启动]{duration}的[计时器|定时器]{timer_name}"
+      - "在{duration}[后|以后|之后][设置|创建|添加|开始|启动][计时器|定时器]{timer_name}"
+      - "{duration}[后|以后|之后][设置|创建|添加|开始|启动][计时器|定时器]{timer_name}"
+      - "[取消|停止|关闭|结束|删除][计时器|定时器|提醒|记录|通知]{timer_name}"
+
+  HassNotifyIntent:
+    action:
+      - notify
+    speech:
+      text: 发送通知
+    slots:
+      message:
+        type: text
+    templates:
+      - "[记住|记录|记一下|提醒我|提醒|提醒一下]{message}"
+      - "帮我[记住|记录|记一下]{message}"
+      - "帮我[提醒|提醒一下]{message}"
+      - "[记住|记录|记一下|提醒我|提醒|提醒一下][这个|这件事]{message}"
+      - "帮我[记住|记录|记一下][这个|这件事]{message}"
+      - "帮我[提醒|提醒一下][这个|这件事]{message}"
+
+responses:
+  intents:
+    MassPlayMediaAssist:
+      default: "ok"
+
+lists:
+  artist:
+    wildcard: true
+  album:
+    wildcard: true
+  track:
+    wildcard: true
+  playlist:
+    wildcard: true
+  radio:
+    wildcard: true
+  radio_mode:
+    values:
+      - "radio mode"
