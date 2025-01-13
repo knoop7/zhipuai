@@ -463,8 +463,8 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
             for iteration in range(self.max_tool_iterations):
                 payload = {
                     "model": options.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL),
-                    "messages": messages[-10:],
-                    "max_tokens": min(options.get(CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS), 1000),
+                    "messages": messages,  
+                    "max_tokens": min(options.get(CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS), 4096),
                     "top_p": options.get(CONF_TOP_P, RECOMMENDED_TOP_P),
                     "temperature": options.get(CONF_TEMPERATURE, RECOMMENDED_TEMPERATURE),
                     "request_id": conversation_id,
@@ -473,7 +473,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                     payload["tools"] = tools
 
 
-                result = await send_ai_request(api_key, payload)
+                result = await send_ai_request(api_key, payload, options)
                 response = result["choices"][0]["message"]
 
                 messages.append(response)

@@ -51,6 +51,8 @@ from .const import (
     MAX_HISTORY_DAYS,
     CONF_HISTORY_INTERVAL,
     DEFAULT_HISTORY_INTERVAL,
+    CONF_REQUEST_TIMEOUT,
+    DEFAULT_REQUEST_TIMEOUT,
 )
 
 ZHIPUAI_MODELS = [
@@ -357,6 +359,15 @@ def zhipuai_config_option_schema(
             vol.Coerce(float),
             vol.Range(min=0, max=10),
             msg="冷却时间必须在0到10秒之间"
+        ),
+        vol.Optional(
+            CONF_REQUEST_TIMEOUT,
+            description={"suggested_value": options.get(CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT)},
+            default=DEFAULT_REQUEST_TIMEOUT,
+        ): vol.All(
+            vol.Coerce(float),
+            vol.Range(min=10, max=120),
+            msg="超时时间必须在10到120秒之间"
         ),
         vol.Optional(
             CONF_WEB_SEARCH,
