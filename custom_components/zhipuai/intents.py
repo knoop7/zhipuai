@@ -2,6 +2,7 @@ from __future__ import annotations
 import re
 import os
 import yaml
+import asyncio
 from datetime import timedelta, datetime
 from typing import Any, Dict, List, Optional, Set
 import voluptuous as vol
@@ -9,10 +10,14 @@ from homeassistant.components import camera
 from homeassistant.components.conversation import DOMAIN as CONVERSATION_DOMAIN
 from homeassistant.components.lock import LockState
 from homeassistant.components.timer import (
-    ATTR_DURATION, ATTR_REMAINING,
-    CONF_DURATION, CONF_ICON,
+    ATTR_DURATION,
+    ATTR_REMAINING,
+    CONF_DURATION,
+    CONF_ICON,
     DOMAIN as TIMER_DOMAIN,
-    SERVICE_START, SERVICE_PAUSE, SERVICE_CANCEL
+    SERVICE_CANCEL,
+    SERVICE_PAUSE,
+    SERVICE_START,
 )
 from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_ENTITY_ID
 from homeassistant.core import Context, HomeAssistant, ServiceResponse, State
@@ -36,6 +41,9 @@ INTENT_TIMER = "HassTimerIntent"
 INTENT_NOTIFY = "HassNotifyIntent"
 INTENT_COVER_GET_STATE = "ZHIPUAI_CoverGetStateIntent"
 INTENT_COVER_SET_POSITION = "ZHIPUAI_CoverSetPositionIntent"
+INTENT_CLIMATE_SET_TEMP = "ClimateSetTemperature"
+INTENT_CLIMATE_SET_MODE = "ClimateSetMode"
+INTENT_CLIMATE_SET_FAN = "ClimateSetFanMode"
 INTENT_NEVERMIND = "nevermind"
 SERVICE_PROCESS = "process"
 ERROR_NO_CAMERA = "no_camera"
@@ -45,6 +53,7 @@ ERROR_NO_QUERY = "no_query"
 ERROR_NO_TIMER = "no_timer"
 ERROR_NO_MESSAGE = "no_message"
 ERROR_INVALID_POSITION = "invalid_position"
+
 
 async def async_setup_intents(hass: HomeAssistant) -> None:
     yaml_path = os.path.join(os.path.dirname(__file__), "intents.yaml")
@@ -56,6 +65,11 @@ async def async_setup_intents(hass: HomeAssistant) -> None:
     intent.async_register(hass, WebSearchIntent(hass))
     intent.async_register(hass, HassTimerIntent(hass))
     intent.async_register(hass, HassNotifyIntent(hass))
+    intent.async_register(hass, ClimateSetTemperatureIntent(hass))
+    intent.async_register(hass, ClimateSetModeIntent(hass))
+    intent.async_register(hass, ClimateSetFanModeIntent(hass))
+    intent.async_register(hass, ClimateSetHumidityIntent(hass))
+    intent.async_register(hass, CoverControlAllIntent(hass))
 
 
 class CameraAnalyzeIntent(intent.IntentHandler):
@@ -152,7 +166,7 @@ class WebSearchIntent(intent.IntentHandler):
             return self._set_error_response(response, ERROR_NO_QUERY, "未提供搜索内容")
         
         if time_query:
-            now = datetime.now()  # 简化时间处理
+            now = datetime.now()  
             if time_query in ["昨天", "昨日", "yesterday"]:
                 date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
             elif time_query in ["明天", "明日", "tomorrow"]:
@@ -380,6 +394,259 @@ class HassNotifyIntent(intent.IntentHandler):
         return None if not slot_data else slot_data.get('value') if isinstance(slot_data, dict) else getattr(slot_data, 'value', None) if hasattr(slot_data, 'value') else str(slot_data)
 
 
+class ClimateBaseIntent(intent.IntentHandler):
+    
+    def __init__(self, hass: HomeAssistant):
+        super().__init__()
+        self.hass = hass
+
+    def _set_error_response(self, response, code: str, message: str) -> intent.IntentResponse:
+        response.async_set_error(code=code, message=message)
+        return response
+
+    def _set_speech_response(self, response, message) -> intent.IntentResponse:
+        response.async_set_speech(message)
+        return response
+
+    def async_validate_slots(self, slots):
+        validated = {}
+        for key, value in slots.items():
+            if isinstance(value, dict) and "value" in value:
+                validated[key] = value["value"]
+            else:
+                validated[key] = value
+        return validated
+
+    def get_slot_value(self, slot_data):
+        return None if not slot_data else slot_data.get('value') if isinstance(slot_data, dict) else getattr(slot_data, 'value', None) if hasattr(slot_data, 'value') else str(slot_data)
+
+    def find_climate_entity(self, name: str) -> Optional[State]:
+        return next((state for state in self.hass.states.async_all() if state.domain == "climate" and (str(name).lower() in state.attributes.get('friendly_name', '').lower() or str(name).lower() in state.entity_id.lower())), None)
+
+    def get_mode_value(self, mode) -> str:
+        return mode.value if hasattr(mode, 'value') else str(mode).strip("'[]")
+
+    def normalize_mode_list(self, modes) -> List[str]:
+        return [self.get_mode_value(mode) for mode in (modes.strip("[]").replace("'", "").split(", ") if isinstance(modes, str) else modes)]
+
+    async def ensure_entity_on(self, entity_id: str) -> None:
+        state = self.hass.states.get(entity_id)
+        state.state == 'off' and await self.hass.services.async_call("climate", "turn_on", {"entity_id": entity_id}) and await asyncio.sleep(1)  
+
+class ClimateSetModeIntent(ClimateBaseIntent):
+    intent_type = INTENT_CLIMATE_SET_MODE
+    slot_schema = {vol.Required("name"): str, vol.Required("mode"): str}
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        name, mode = self.get_slot_value(slots.get("name")), self.get_slot_value(slots.get("mode"))
+        response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+        return (self._set_error_response(response, "invalid_slots", "缺少必要的参数") if not name or not mode else 
+                self._set_error_response(response, "not_found", f"找不到名为 {name} 的空调") if not (state := self.find_climate_entity(name)) else
+                await self._handle_mode_setting(response, state, name, mode))
+
+    async def _handle_mode_setting(self, response, state, name, mode):
+        available_modes = self.normalize_mode_list(state.attributes.get('hvac_modes', []))
+        mode_maps = {"制冷": ["cool", "cooling"], "制热": ["heat", "heating"], "自动": ["auto", "heat_cool", "automatic"],
+                    "除湿": ["dry", "dehumidify"], "送风": ["fan_only", "fan"], "关闭": ["off"], "停止": ["off"]}
+        mode_lower = mode.lower()
+        target_mode = (mode_lower if mode_lower in available_modes else 
+                      next((m for cn_mode, en_modes in mode_maps.items() 
+                           for m in en_modes if m in available_modes
+                           and (mode_lower == cn_mode.lower() or any(em in mode_lower for em in en_modes))), None))
+        return (self._set_error_response(response, "invalid_mode", 
+                f"不支持的模式: {mode}。支持的模式: {', '.join([cn_mode for cn_mode, en_modes in mode_maps.items() if any(m in available_modes for m in en_modes)])}") 
+                if not target_mode else 
+                await self._set_mode(response, state, name, mode, target_mode))
+
+    async def _set_mode(self, response, state, name, mode, target_mode):
+        try:
+            await self.hass.services.async_call("climate", "set_hvac_mode", 
+                {"entity_id": state.entity_id, "hvac_mode": target_mode})
+            return self._set_speech_response(response, f"已将{name}设置为{mode}模式")
+        except Exception as e:
+            return self._set_error_response(response, "operation_failed", f"设置模式失败: {str(e)}")
+
+class ClimateSetFanModeIntent(ClimateBaseIntent):
+    intent_type = INTENT_CLIMATE_SET_FAN
+    slot_schema = {vol.Required("name"): str, vol.Required("fan_mode"): str}
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        name, fan_mode = self.get_slot_value(slots.get("name")), self.get_slot_value(slots.get("fan_mode"))
+        response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+        return (self._set_error_response(response, "invalid_slots", "缺少必要的参数") if not name or not fan_mode else
+                self._set_error_response(response, "not_found", f"找不到名为 {name} 的空调") if not (state := self.find_climate_entity(name)) else
+                await self._handle_fan_mode_setting(response, state, name, fan_mode))
+
+    async def _handle_fan_mode_setting(self, response, state, name, fan_mode):
+        await self.ensure_entity_on(state.entity_id)
+        available_modes = self.normalize_mode_list(state.attributes.get('fan_modes', []))
+        fan_mode_maps = {
+            "自动": ["auto", "auto_low", "auto_high", "自动"],
+            "低速": ["on_low", "low", "一档", "一挡", "低风"],
+            "中速": ["medium", "mid", "二档", "二挡", "中风"],
+            "高速": ["on_high", "high", "七档", "高风"],
+            "关闭": ["off"]
+        }
+        fan_mode_clean = str(fan_mode).rstrip('档挡')
+        target_mode = (fan_mode if fan_mode in available_modes else
+                      next((mode for mode in available_modes if str(fan_mode_clean) in mode or 
+                           f"{'一二三四五六七八九十'[int(fan_mode_clean)-1]}" in mode or
+                           mode.rstrip('档挡') == fan_mode_clean), None) if fan_mode_clean.isdigit() else
+                      next((m for cn_mode, en_modes in fan_mode_maps.items() 
+                           for m in en_modes if m in available_modes
+                           and (fan_mode_clean == cn_mode or any(em in fan_mode_clean for em in en_modes))), None))
+        return (self._set_error_response(response, "invalid_fan_mode", 
+                f"不支持的风速模式: {fan_mode}。支持的模式: {', '.join(available_modes)}") if not target_mode else
+                await self._set_fan_mode(response, state, name, target_mode))
+
+    async def _set_fan_mode(self, response, state, name, target_mode):
+        try:
+            await self.hass.services.async_call("climate", "set_fan_mode", 
+                {"entity_id": state.entity_id, "fan_mode": target_mode})
+            return self._set_speech_response(response, f"已将{name}的风速设置为{target_mode}")
+        except Exception as e:
+            return (self._set_speech_response(response, f"已开启{name}并设置风速为{target_mode}") 
+                    if "设备在当前状态下无法执行此操作" in str(e) and 
+                       not await self.ensure_entity_on(state.entity_id) and
+                       not await self.hass.services.async_call("climate", "set_fan_mode", 
+                           {"entity_id": state.entity_id, "fan_mode": target_mode}) else
+                    self._set_error_response(response, "operation_failed", f"设置风速失败: {str(e)}"))
+
+class ClimateSetTemperatureIntent(ClimateBaseIntent):
+    intent_type = INTENT_CLIMATE_SET_TEMP
+    slot_schema = {vol.Required("name"): str, vol.Required("temperature"): int}
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        name = self.get_slot_value(slots.get("name"))
+        temperature = self.get_slot_value(slots.get("temperature"))
+        
+        try:
+            temperature = int(temperature) if temperature is not None else None
+        except (TypeError, ValueError):
+            response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+            return self._set_error_response(response, "invalid_temperature", "温度必须是一个有效的数字")
+                    
+        if not name or temperature is None:
+            response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+            return self._set_error_response(response, "invalid_slots", "缺少必要的参数")
+
+        state = self.find_climate_entity(name)
+        response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+        
+        if not state:
+            return self._set_error_response(response, "not_found", f"找不到名为 {name} 的空调")
+
+        await self.ensure_entity_on(state.entity_id)
+        
+        min_temp = float(state.attributes.get('min_temp', 16))
+        max_temp = float(state.attributes.get('max_temp', 30))
+        
+        if temperature < min_temp or temperature > max_temp:
+            return self._set_error_response(response, "invalid_temperature", 
+                f"温度必须在{min_temp}度到{max_temp}度之间")
+            
+        current_temp = state.attributes.get('current_temperature')
+        if current_temp is not None:
+            current_temp = float(current_temp)
+            if current_temp > temperature:
+                await self.hass.services.async_call("climate", "set_hvac_mode", 
+                    {"entity_id": state.entity_id, "hvac_mode": "cool"})
+            elif current_temp < temperature:
+                await self.hass.services.async_call("climate", "set_hvac_mode", 
+                    {"entity_id": state.entity_id, "hvac_mode": "heat"})
+        
+        try:
+            await self.hass.services.async_call("climate", "set_temperature", 
+                {"entity_id": state.entity_id, "temperature": temperature})
+            return self._set_speech_response(response, f"已将{name}温度设置为{temperature}度")
+        except Exception as e:
+            LOGGER.error("设置温度失败: %s", str(e))
+            return self._set_error_response(response, "operation_failed", f"设置温度失败: {str(e)}")
+
+class ClimateSetHumidityIntent(ClimateBaseIntent):
+    intent_type = "ClimateSetHumidity"
+    slot_schema = {vol.Required("name"): str, vol.Required("humidity"): int}
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        name = self.get_slot_value(slots.get("name"))
+        humidity = self.get_slot_value(slots.get("humidity"))
+        
+        try:
+            humidity = int(humidity) if humidity is not None else None
+        except (TypeError, ValueError):
+            response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+            return self._set_error_response(response, "invalid_humidity", "湿度必须是一个有效的数字")
+        
+        if not name or humidity is None:
+            response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+            return self._set_error_response(response, "invalid_slots", "缺少必要的参数")
+
+        state = self.find_climate_entity(name)
+        response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+        
+        if not state:
+            return self._set_error_response(response, "not_found", f"未找到名为 {name} 的空调")
+
+        await self.ensure_entity_on(state.entity_id)
+        
+        if humidity < 10 or humidity > 100:
+            return self._set_error_response(response, "invalid_humidity", 
+                "湿度必须在10%到100%之间")
+        
+        try:
+            await self.hass.services.async_call("climate", "set_humidity", 
+                {"entity_id": state.entity_id, "humidity": humidity})
+            return self._set_speech_response(response, f"已将{name}湿度设置为{humidity}%")
+        except Exception as e:
+            LOGGER.error("设置湿度失败: %s", str(e))
+            return self._set_error_response(response, "operation_failed", f"设置湿度失败: {str(e)}")
+
+
+class CoverControlAllIntent(intent.IntentHandler):
+    intent_type = "CoverControlAll"
+    slot_schema = {}
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+        
+        covers = [state for state in self.hass.states.async_all() 
+                 if state.entity_id.startswith("cover.")]
+        
+        if not covers:
+            return self._set_error_response(response, "not_found", "未找到任何窗帘设备")
+        
+        try:
+            for cover in covers:
+                await self.hass.services.async_call(
+                    "cover", "close_cover",
+                    {"entity_id": cover.entity_id}
+                )
+            return self._set_speech_response(response, f"已关闭所有{len(covers)}个窗帘")
+        except Exception as e:
+            return self._set_error_response(response, "operation_failed", f"操作失败: {str(e)}")
+
+    def _set_speech_response(self, response: intent.IntentResponse, speech: str) -> intent.IntentResponse:
+        response.response_type = intent.IntentResponseType.ACTION_DONE
+        response.speech = {"plain": {"speech": speech, "extra_data": None}}
+        return response
+
+    def _set_error_response(self, response: intent.IntentResponse, error: str, message: str) -> intent.IntentResponse:
+        response.response_type = intent.IntentResponseType.ERROR
+        response.error_code = error
+        response.speech = {"plain": {"speech": message, "extra_data": None}}
+        return response
+
+
 def extract_intent_info(user_input: str, hass: HomeAssistant) -> Optional[Dict[str, Any]]:
     entity_match = re.search(r'([\w_]+\.[\w_]+)', user_input)
     entity_id = entity_match.group(1) if entity_match else None
@@ -431,6 +698,7 @@ class IntentHandler:
     automation_actions = {"turn_on": "启用", "turn_off": "禁用", "trigger": "触发", "toggle": "切换"}
     boolean_actions = {"turn_on": "打开", "turn_off": "关闭", "toggle": "切换"}
     timer_actions = {"start": "启动", "pause": "暂停", "cancel": "取消", "finish": "结束", "reload": "重新加载"}
+    select_actions = {"select_next": "下一个", "select_previous": "上一个", "select_first": "第一个", "select_last": "最后一个", "select_option": "选择"}
 
     async def call_service(self, domain: str, service: str, data: Dict[str, Any]) -> Dict[str, Any]:
         try:
@@ -465,6 +733,8 @@ class IntentHandler:
                     {"success": True, "message": f"已设置 {friendly_name} 吸力为{data['fan_speed']}"} if domain == "vacuum" and service == "set_fan_speed" and "fan_speed" in data else
                     {"success": True, "message": f"已{self.vacuum_actions.get(service, service)} {friendly_name}"} if domain == "vacuum" else
                     {"success": True, "message": f"已按下 {friendly_name}"} if domain == "button" and service == "press" else
+                    {"success": True, "message": f"已设置 {friendly_name} 为 {data['value']}"} if domain == "number" and service == "set_value" else
+                    {"success": True, "message": f"已切换到{friendly_name}{self.select_actions.get(service, '选项')}"} if domain == "select" else
                     {"success": True, "message": f"已执行 {friendly_name} {service}"})
         except Exception as e:
             return {"success": False, "message": str(e)}

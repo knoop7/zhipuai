@@ -337,15 +337,15 @@ def zhipuai_config_option_schema(
             default=options.get(CONF_RECOMMENDED, False)
         ): bool,
         vol.Optional(
-            CONF_MAX_HISTORY_MESSAGES,
-            description={"suggested_value": options.get(CONF_MAX_HISTORY_MESSAGES)},
-            default=RECOMMENDED_MAX_HISTORY_MESSAGES,
-        ): int,
-        vol.Optional(
             CONF_CHAT_MODEL,
             description={"suggested_value": options.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL)},
             default=RECOMMENDED_CHAT_MODEL,
         ): SelectSelector(SelectSelectorConfig(options=ZHIPUAI_MODELS)),
+        vol.Optional(
+            CONF_MAX_HISTORY_MESSAGES,
+            description={"suggested_value": options.get(CONF_MAX_HISTORY_MESSAGES)},
+            default=RECOMMENDED_MAX_HISTORY_MESSAGES,
+        ): int,
         vol.Optional(
             CONF_MAX_TOOL_ITERATIONS,
             description={"suggested_value": options.get(CONF_MAX_TOOL_ITERATIONS, DEFAULT_MAX_TOOL_ITERATIONS)},
