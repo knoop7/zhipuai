@@ -206,7 +206,49 @@ Attributes:
 
 ### 处理流程详解
 
-共计有三个处理机制，分别为：一、内置LLM结合集成实现的服务调用、二、自定义意图识别、三、多元化AI对话，LLMAPI内置意图，服务调用识别是系统的第一道处理机制，专门用于处理直接的设备控制命令，可以帮助系统更快地响应用户的控制需求（毫秒级操作逻辑）属于结合搭配原本内置LLM的能力。接着是补充实现的功能：
+共计有三个处理机制，分别为：一、内置LLM结合集成实现的服务调用、二、自定义意图识别、三、多元化AI对话，LLMAPI内置意图，服务调用识别是系统的第一道处理机制，专门用于处理直接的设备控制命令，可以帮助系统更快地响应用户的控制需求（毫秒级操作逻辑）属于结合搭配原本内置LLM的能力。
+
+
+原本支持有：
+- **基础控制**：
+  - 开关控制：打开/关闭设备 (HassTurnOn/HassTurnOff)
+  - 状态查询：获取设备状态 (HassGetState)
+  - 取消操作：取消当前操作 (HassNevermind)
+  - 系统响应：获取系统回应 (HassRespond)
+
+- **设备控制**：
+  - 位置设置：调整设备位置 (HassSetPosition)
+  - 灯光控制：设置灯光参数 (HassLightSet)
+  - 温度查询：获取温度信息 (HassClimateGetTemperature)
+  - 真空吸尘器：启动/返回充电 (HassVacuumStart/HassVacuumReturnToBase)
+
+- **媒体控制**：
+  - 播放控制：暂停/继续/下一个/上一个 (HassMediaPause/HassMediaUnpause/HassMediaNext/HassMediaPrevious) ｜（补充控制词已实现）
+  - 音量控制：设置音量 (HassSetVolume) ｜（补充控制词已实现）
+
+- **时间相关**：
+  - 时间查询：获取当前日期/时间 (HassGetCurrentDate/HassGetCurrentTime)
+  - 定时器控制：
+    - 基础操作：开始/取消/暂停/继续 (HassStartTimer/HassCancelTimer/HassPauseTimer/HassUnpauseTimer) ｜（本集成中已实现自定义意图）
+    - 时间调整：增加/减少时间 (HassIncreaseTimer/HassDecreaseTimer)  ｜（本集成中已实现自定义意图）
+    - 批量操作：取消所有定时器 (HassCancelAllTimers) ｜（本集成中已实现自定义意图）
+    - 状态查询：获取定时器状态 (HassTimerStatus) ｜（本集成中已实现自定义意图）
+
+- **列表管理**：
+  - 购物清单：添加商品 (HassShoppingListAddItem)
+  - 通用列表：添加项目 (HassListAddItem)
+
+- **环境信息**：
+  - 天气查询：获取天气信息 (HassGetWeather) ｜（本集成中已实现联网查询在线天气）
+
+- **已弃用功能**：
+  - 窗帘控制：打开/关闭窗帘 (HassOpenCover/HassCloseCover) ｜（本集成中自定义意图已实现）
+  - 开关切换：切换设备状态 (HassToggle)｜（补充控制词已实现）
+  - 加湿器控制：设置湿度/模式 (HassHumidifierSetpoint/HassHumidifierMode) ｜（本集成中自定义意图已实现）
+  - 购物清单：获取最近项目 (HassShoppingListLastItems) ｜ （本集成中未实现，实际使用人数不多为弃用状态）
+
+
+接着是补充实现的功能：
 
 1. **控制词识别增强**
    ```text
