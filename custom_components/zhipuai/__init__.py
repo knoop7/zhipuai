@@ -10,6 +10,7 @@ from .services import async_setup_services
 from .web_search import async_setup_web_search
 from .image_gen import async_setup_image_gen
 from .entity_analysis import async_setup_entity_analysis
+from .process_with_ha import async_setup as async_setup_process_with_ha
 
 PLATFORMS: list[Platform] = [Platform.CONVERSATION]
 
@@ -66,7 +67,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await async_setup_web_search(hass)
         await async_setup_image_gen(hass)
         await async_setup_entity_analysis(hass)
-        
+        await async_setup_process_with_ha(hass)
+ 
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         return True
         

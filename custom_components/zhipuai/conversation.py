@@ -4,13 +4,13 @@ import asyncio
 import time
 import re
 from datetime import datetime, timedelta
-from typing import Any, Literal, TypedDict, Dict, List, Optional
+from typing import Any, TypedDict, Dict, List, Optional
 from voluptuous_openapi import convert
 from homeassistant.components import assist_pipeline, conversation
 from homeassistant.components.conversation import trace
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_API_KEY, CONF_LLM_HASS_API, MATCH_ALL, ATTR_ENTITY_ID
-from homeassistant.core import HomeAssistant, Context
+from homeassistant.const import CONF_API_KEY, CONF_LLM_HASS_API
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import device_registry as dr, intent, llm, template, entity_registry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -177,7 +177,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
         if self.entry.options.get(CONF_LLM_HASS_API) and self.entry.options.get(CONF_LLM_HASS_API) != "none":
             self._attr_supported_features = conversation.ConversationEntityFeature.CONTROL
         self.last_request_time = 0
-        self.max_tool_iterations = min(entry.options.get(CONF_MAX_TOOL_ITERATIONS, DEFAULT_MAX_TOOL_ITERATIONS), 30)
+        self.max_tool_iterations = min(entry.options.get(CONF_MAX_TOOL_ITERATIONS, DEFAULT_MAX_TOOL_ITERATIONS), 60)
         self.cooldown_period = entry.options.get(CONF_COOLDOWN_PERIOD, DEFAULT_COOLDOWN_PERIOD)
         self.llm_api = None
         self.intent_handler = IntentHandler(hass)
@@ -217,46 +217,28 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
         await super().async_will_remove_from_hass()
 
     async def async_process(self, user_input: conversation.ConversationInput) -> conversation.ConversationResult:
-        if user_input.context and user_input.context.id and user_input.context.id.startswith(f"{DOMAIN}_service_call"):
+        if (user_input.context and user_input.context.id and user_input.context.id.startswith(f"{DOMAIN}_service_call")) or getattr(user_input, "prefer_local_intents", False):
             return None
-            
+
         current_time = time.time()
-        if current_time - self.last_request_time < self.cooldown_period:
-            await asyncio.sleep(self.cooldown_period - (current_time - self.last_request_time))
+        current_time - self.last_request_time < self.cooldown_period and await asyncio.sleep(self.cooldown_period - (current_time - self.last_request_time))
         self.last_request_time = time.time()
 
         intent_response = intent.IntentResponse(language=user_input.language)
         
-        if is_service_call(user_input.text):
-            service_info = extract_service_info(user_input.text, self.hass)
-            if service_info:
-                result = await self.intent_handler.call_service(
-                    service_info["domain"],
-                    service_info["service"],
-                    service_info["data"]
-                )
-                if result["success"]:
-                    intent_response.async_set_speech(result["message"])
-                else:
-                    intent_response.async_set_error(
-                        intent.IntentResponseErrorCode.NO_VALID_TARGETS,
-                        result["message"]
-                    )
-                return conversation.ConversationResult(
-                    response=intent_response,
-                    conversation_id=user_input.conversation_id
-                )
-                
+        if service_info := (is_service_call(user_input.text) and extract_service_info(user_input.text, self.hass)):
+            result = await self.intent_handler.call_service(service_info["domain"], service_info["service"], service_info["data"])
+            result["success"] and intent_response.async_set_speech(result["message"]) or intent_response.async_set_error(
+                intent.IntentResponseErrorCode.NO_VALID_TARGETS, result["message"])
+            return conversation.ConversationResult(response=intent_response, conversation_id=user_input.conversation_id)
+            
         options = self.entry.options
-        tools: list[ChatCompletionToolParam] | None = None
-        user_name: str | None = None
+        tools = None
+        user_name = None
         llm_context = llm.LLMContext(
-            platform=DOMAIN,
-            context=user_input.context,
-            user_prompt=user_input.text,
-            language=user_input.language,
-            assistant=conversation.DOMAIN,
-            device_id=user_input.device_id,
+            platform=DOMAIN, context=user_input.context,
+            user_prompt=user_input.text, language=user_input.language,
+            assistant=conversation.DOMAIN, device_id=user_input.device_id,
         )
 
         try:
@@ -264,56 +246,29 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                 self.llm_api = await llm.async_get_api(self.hass, options[CONF_LLM_HASS_API], llm_context)
                 tools = [_format_tool(tool, self.llm_api.custom_serializer) for tool in self.llm_api.tools]
                 
-                if not options.get(CONF_WEB_SEARCH, DEFAULT_WEB_SEARCH):
-                    if any(term in user_input.text.lower() for term in ["联网", "查询", "网页", "search"]):
-                        intent_response.async_set_speech("联网搜索功能已关闭，请在配置中开启后再试。")
-                        return conversation.ConversationResult(
-                            response=intent_response,
-                            conversation_id=user_input.conversation_id
-                        )
-                    tools = [tool for tool in tools if tool["function"]["name"] != "web_search"]
+                if not options.get(CONF_WEB_SEARCH, DEFAULT_WEB_SEARCH) and any(term in user_input.text.lower() for term in ["联网", "查询", "网页", "search"]):
+                    intent_response.async_set_speech("联网搜索功能已关闭，请在配置中开启后再试。")
+                    return conversation.ConversationResult(response=intent_response, conversation_id=user_input.conversation_id)
+                tools = [tool for tool in tools if tool["function"]["name"] != "web_search"]
         except HomeAssistantError as err:
-            intent_response.async_set_error(intent.IntentResponseErrorCode.UNKNOWN, f"获取 LLM API 时出错，将继续使用基本功能。")
+            intent_response.async_set_error(intent.IntentResponseErrorCode.UNKNOWN, "获取 LLM API 时出错，将继续使用基本功能。")
 
-        intent_info = extract_intent_info(user_input.text, self.hass)
-        if intent_info:
+        if intent_info := extract_intent_info(user_input.text, self.hass):
             result = await self.intent_handler.handle_intent(intent_info)
-            if result["success"]:
-                intent_response.async_set_speech(result["message"])
-            else:
-                intent_response.async_set_error(
-                    intent.IntentResponseErrorCode.NO_VALID_TARGETS,
-                    result["message"]
-                )
-            return conversation.ConversationResult(
-                response=intent_response,
-                conversation_id=user_input.conversation_id
-            )
+            result["success"] and intent_response.async_set_speech(result["message"]) or intent_response.async_set_error(
+                intent.IntentResponseErrorCode.NO_VALID_TARGETS, result["message"])
+            return conversation.ConversationResult(response=intent_response, conversation_id=user_input.conversation_id)
 
-        if user_input.conversation_id is None:
-            conversation_id = ulid.ulid_now()
-            messages = []
-        elif user_input.conversation_id in self.history:
-            conversation_id = user_input.conversation_id
-            messages = self.history[conversation_id]
-        else:
-            conversation_id = user_input.conversation_id
-            messages = []
+        conversation_id = user_input.conversation_id or ulid.ulid_now()
+        messages = self.history.get(conversation_id, []) if user_input.conversation_id else []
 
-        max_history_messages = options.get(CONF_MAX_HISTORY_MESSAGES, RECOMMENDED_MAX_HISTORY_MESSAGES)
-        use_history = len(messages) < max_history_messages
+        user_input.context and user_input.context.user_id and (user := await self.hass.auth.async_get_user(user_input.context.user_id)) and (user_name := user.name)
 
-        if user_input.context and user_input.context.user_id and (user := await self.hass.auth.async_get_user(user_input.context.user_id)):
-            user_name = user.name
         try:
             er = entity_registry.async_get(self.hass)
-            entities_dict = {entity_id: er.async_get(entity_id) 
-                           for entity_id in self.hass.states.async_entity_ids()}
-            exposed_entities = [
-                entity for entity_id, entity in entities_dict.items()
-                if entity and not entity.hidden
-            ]
-
+            entities_dict = {entity_id: er.async_get(entity_id) for entity_id in self.hass.states.async_entity_ids()}
+            exposed_entities = [entity for entity in entities_dict.values() if entity and not entity.hidden]
+            
             prompt_parts = [
                 template.Template(
                     llm.BASE_PROMPT + options.get(CONF_PROMPT, llm.DEFAULT_INSTRUCTIONS_PROMPT),
@@ -323,73 +278,52 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                         "ha_name": self.hass.config.location_name,
                         "user_name": user_name,
                         "llm_context": llm_context,
-                        "exposed_entities": exposed_entities,
+                        "exposed_entities": exposed_entities if self.entry.options.get(CONF_LLM_HASS_API) and self.entry.options.get(CONF_LLM_HASS_API) != "none" else [],
                     },
                     parse_result=False,
                 )
             ]
 
-            if self.entry.options.get(CONF_HISTORY_ANALYSIS):
-                entities = self.entry.options.get(CONF_HISTORY_ENTITIES, [])
-                days = self.entry.options.get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
-                
+            if (self.entry.options.get(CONF_LLM_HASS_API) and 
+                self.entry.options.get(CONF_LLM_HASS_API) != "none" and 
+                self.entry.options.get(CONF_HISTORY_ANALYSIS)):
+                entities = self.entry.options.get(CONF_HISTORY_ENTITIES)
                 if entities:
                     try:
-                        end_time = datetime.now()
-                        start_time = end_time - timedelta(days=days)
+                        now = datetime.now()
+                        days = self.entry.options.get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
+                        interval_seconds = self.entry.options.get(CONF_HISTORY_INTERVAL, DEFAULT_HISTORY_INTERVAL) * 60
                         
-                        history_text = []
-                        history_text.append("以下是询问者所关注的实体的历史数据分析（{}天内）：".format(days))
-                        
-                        instance = get_instance(self.hass)
-                        history_data = await instance.async_add_executor_job(
-                            get_significant_states,
-                            self.hass,
-                            start_time,
-                            end_time,
-                            entities,
-                            None,
-                            True,
-                            True
+                        history_text = [f"以下是询问者所关注的实体的历史数据分析（{days}天内）："]
+                        history_data = await get_instance(self.hass).async_add_executor_job(
+                            get_significant_states, self.hass, now - timedelta(days=days), now,
+                            entities, None, True, True
                         )
 
-                        for entity_id in entities:
-                            state = self.hass.states.get(entity_id)
-                            if state is None or entity_id not in history_data or not history_data[entity_id]:
-                                history_text.append("{} (当前状态):".format(entity_id))
-                                history_text.append(
-                                    "- {} ({})".format(state.state if state else 'unknown', state.last_updated.astimezone().strftime('%m-%d %H:%M:%S') if state else 'unknown')
-                                )
-                            else:
-                                states = history_data[entity_id]
-                                history_text.append("{} (历史状态变化):".format(entity_id))
-                                last_state_text = None
-                                last_time = None
-                                for state in states:
-                                    if state.state == "unavailable":
-                                        continue
-                                        
-                                    current_time = state.last_updated.astimezone()
-                                    interval_minutes = self.entry.options.get(CONF_HISTORY_INTERVAL, DEFAULT_HISTORY_INTERVAL)
-                                    if last_time and (current_time - last_time).total_seconds() < interval_minutes * 60:
-                                        continue
-                                        
-                                    state_text = "- {} ({})".format(state.state, current_time.strftime('%m-%d %H:%M:%S'))
-                                    if state_text != last_state_text:
-                                        history_text.append(state_text)
-                                        last_state_text = state_text
-                                        last_time = current_time
-                                if len(history_text) > 1:
-                                    history_text_str = "\n".join(history_text).strip()
-                                    if history_text_str:
-                                        prompt_parts.append({
-                                            "type": "history_analysis",
-                                            "content": history_text
-                                        })
-                            
-                    except Exception as err:
-                        LOGGER.warning(f"获取历史数据时出错: {err}")
+                        def process_states(states, current_state):
+                            return ([f"- {current_state.state if current_state else 'unknown'} "
+                                   f"({current_state.last_updated.astimezone().strftime('%m-%d %H:%M:%S') if current_state else 'unknown'})"]
+                                   if not states else
+                                   [f"- {state} ({time.strftime('%m-%d %H:%M:%S')})"
+                                    for state, time, _ in sorted(
+                                        ((s.state, s.last_updated.astimezone(), i)
+                                         for i, s in enumerate(states)
+                                         if s.state != "unavailable"),
+                                        key=lambda x: x[1]
+                                    )
+                                    if not _ or time.timestamp() - states[_-1].last_updated.timestamp() >= interval_seconds])
 
+                        for entity_id in entities:
+                            current_state = self.hass.states.get(entity_id)
+                            states = history_data.get(entity_id, [])
+                            history_text.append(f"{entity_id} ({('历史状态变化' if states else '当前状态')}):")
+                            history_text.extend(process_states(states, current_state))
+                        
+                        if len(history_text) > 1:
+                            prompt_parts.append({"type": "history_analysis", "content": history_text})
+
+                    except Exception as err:
+                        LOGGER.info(f"获取历史数据时出错: {err}")
         except template.TemplateError as err:
             content_message = f"抱歉，Jinja2 模板解析出错，请检查配置模板，有实体信息配置导致获取失败： {err}"
             filtered_content = self._filter_response_content(content_message)
@@ -417,7 +351,10 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                 return [m.strip() for m in modes.split(',')]
             return [str(mode) for mode in modes]
 
-        climate_entities = [state for state in self.hass.states.async_all() if state.domain == "climate"]
+        climate_entities = []
+        if self.entry.options.get(CONF_LLM_HASS_API) and self.entry.options.get(CONF_LLM_HASS_API) != "none":
+            climate_entities = [state for state in self.hass.states.async_all() if state.domain == "climate"]
+            
         if climate_entities:
             content = []
             for entity in climate_entities:
@@ -461,15 +398,13 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
 
         messages = [
             ChatCompletionMessageParam(role="system", content="\n".join(all_lines)),  
-            *(messages if use_history else []),
+            *(messages if len(messages) < options.get(CONF_MAX_HISTORY_MESSAGES, RECOMMENDED_MAX_HISTORY_MESSAGES) else messages[-(options.get(CONF_MAX_HISTORY_MESSAGES, RECOMMENDED_MAX_HISTORY_MESSAGES)):]),
             ChatCompletionMessageParam(role="user", content=user_input.text),
         ]
-        if len(messages) > max_history_messages + 1:
-            messages = [messages[0]] + messages[-(max_history_messages):]
 
         api_key = self.entry.data[CONF_API_KEY]
         try:
-            for iteration in range(self.max_tool_iterations):
+            for _ in range(self.max_tool_iterations):
                 payload = {
                     "model": options.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL),
                     "messages": messages,  
@@ -514,6 +449,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                                 content=formatted_response,
                             )
                         )
+                        self.service_call_attempts = 0  
                     except Exception as e:
                         content_message = f"操作执行失败: {str(e)}"
                         messages.append(
@@ -524,8 +460,10 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                             )
                         )
                         tool_call_failed = True
+                        self.service_call_attempts += 1  
 
-                if tool_call_failed and self.service_call_attempts >= 3:
+                if tool_call_failed and self.service_call_attempts >= self.max_tool_iterations:
+                    self.service_call_attempts = 0  
                     return await self._fallback_to_hass_llm(user_input, conversation_id)
 
 
@@ -570,35 +508,13 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
     async def _handle_tool_call(self, tool_input: llm.ToolInput, user_input: str) -> Dict[str, Any]:
         try:
             if self.llm_api and hasattr(self.llm_api, "async_call_tool"):
-                try:
-                    result = await self.llm_api.async_call_tool(tool_input)
-                    if isinstance(result, dict):
-                        if "error" not in result:
-                            return result
-                        else:
-                            LOGGER.warning("LLM API调用返回错误: %s", result["error"])
-                            return {"error": str(result["error"])}
-                except AttributeError as e:
-                    LOGGER.warning("LLM API调用参数错误: %s", str(e))
-                    return {"error": "工具调用参数错误"}
-                except Exception as e:
-                    LOGGER.warning("LLM API调用失败: %s", str(e))
-                    return {"error": f"工具调用失败: {str(e)}"}
+                result = await self.llm_api.async_call_tool(tool_input)
+                return result if isinstance(result, dict) and "error" not in result else {"error": str(result.get("error", "工具调用失败"))}
             
-            if is_service_call(user_input):
-                service_info = extract_service_info(user_input, self.hass)
-                if service_info:
-                    result = await self.intent_handler.call_service(
-                        service_info["domain"],
-                        service_info["service"],
-                        service_info["data"]
-                    )
-                    return result
-                else:
-                    return {"error": "无法解析服务调用信息"}
-                
-            return {"error": "无法处理该工具调用"}
-            
+            service_info = is_service_call(user_input) and extract_service_info(user_input, self.hass)
+            return await self.intent_handler.call_service(
+                service_info["domain"], service_info["service"], service_info["data"]
+            ) if service_info else {"error": "无法处理该工具调用"}
         except Exception as e:
             return {"error": f"处理工具调用时发生错误: {str(e)}"}
 

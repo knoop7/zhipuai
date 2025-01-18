@@ -69,6 +69,7 @@ async def async_setup_intents(hass: HomeAssistant) -> None:
     intent.async_register(hass, ClimateSetModeIntent(hass))
     intent.async_register(hass, ClimateSetFanModeIntent(hass))
     intent.async_register(hass, ClimateSetHumidityIntent(hass))
+    intent.async_register(hass, ClimateSetSwingModeIntent(hass))
     intent.async_register(hass, CoverControlAllIntent(hass))
 
 
@@ -608,6 +609,64 @@ class ClimateSetHumidityIntent(ClimateBaseIntent):
             LOGGER.error("设置湿度失败: %s", str(e))
             return self._set_error_response(response, "operation_failed", f"设置湿度失败: {str(e)}")
 
+
+class ClimateSetSwingModeIntent(ClimateBaseIntent):
+    intent_type = "ClimateSetSwingMode"
+    slot_schema = {vol.Required("name"): str, vol.Required("swing_mode"): str}
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        name, swing_mode = self.get_slot_value(slots.get("name")), self.get_slot_value(slots.get("swing_mode"))
+        response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+        
+        if not name or not swing_mode:
+            return self._set_error_response(response, "invalid_slots", "缺少必要的参数")
+            
+        state = self.find_climate_entity(name)
+        if not state:
+            return self._set_error_response(response, "not_found", f"找不到名为 {name} 的空调")
+            
+        return await self._handle_swing_mode_setting(response, state, name, swing_mode)
+
+    async def _handle_swing_mode_setting(self, response, state, name, swing_mode) -> intent.IntentResponse:
+        available_modes = state.attributes.get("swing_modes", [])
+        if not available_modes:
+            return self._set_error_response(response, "not_supported", f"{name}不支持摆动模式设置")
+
+        target_mode = None
+        normalized_mode = swing_mode.lower()
+        
+        mode_mapping = {
+            "off": ["关闭", "停止", "关", "off", "stop"],
+            "on": ["开启", "打开", "开", "on", "start"],
+            "vertical": ["上下", "垂直", "vertical"],
+            "horizontal": ["左右", "水平", "horizontal"],
+            "both": ["全开", "全部", "both"],
+            "auto": ["自动", "智能", "auto", "automatic"]
+        }
+        
+        for mode in available_modes:
+            mode_lower = mode.lower()
+            for key, values in mode_mapping.items():
+                if mode_lower == key or any(val in normalized_mode for val in values):
+                    target_mode = mode
+                    break
+            if target_mode:
+                break
+                
+        if not target_mode:
+            modes_str = "、".join(available_modes)
+            return self._set_error_response(response, "invalid_mode", 
+                f"不支持的摆动模式。{name}支持的模式有：{modes_str}")
+                
+        try:
+            await self.hass.services.async_call(
+                "climate", "set_swing_mode",
+                {"entity_id": state.entity_id, "swing_mode": target_mode}
+            )
+            return self._set_speech_response(response, f"已将{name}的摆动模式设置为{target_mode}")
+        except Exception as e:
+            return self._set_error_response(response, "operation_failed", f"设置摆动模式失败：{str(e)}")
 
 class CoverControlAllIntent(intent.IntentHandler):
     intent_type = "CoverControlAll"

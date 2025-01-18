@@ -57,16 +57,20 @@ from .const import (
 
 ZHIPUAI_MODELS = [
     "GLM-4-Plus",
-    "GLM-4V-Plus", 
+    "glm-zero-preview",
+    "web-search-pro",
     "GLM-4-0520",
-    "GLM-4-Long",
-    "GLM-4-AirX",
-    "GLM-4-Air", 
-    "GLM-4-FlashX",
-    "GLM-4-Flash",
     "GLM-4V",
+    "GLM-4-Long",
+    "GLM-4-Flash",
+    "GLM-4-FlashX",
+    "GLM-4-9B",
+    "GLM-4-Air", 
+    "GLM-4-AirX",
     "GLM-4-AllTools",
+    "glm-4-Air-0111",
     "GLM-4",
+    "GLM-4-CodeGeex-4",
 ]
 
 RECOMMENDED_CHAT_MODEL = "GLM-4-Flash"

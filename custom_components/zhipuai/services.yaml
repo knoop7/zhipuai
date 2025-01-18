@@ -219,3 +219,34 @@ entity_analysis:
           min: 1
           max: 15
           mode: box
+
+process_with_ha:
+  name: 优先本地处理
+  description: 尝试先使用 Home Assistant 本地处理，如果失败且则使用 智谱AI 处理。
+  fields:
+    text:
+      name: 对话内容
+      required: true
+      description: '要处理的对话内容'
+      example: "打开客厅灯光"
+      selector:
+        text:
+          multiline: true
+    language:
+      name: 语言
+      required: false
+      description: '对话语言，默认为中文'
+      example: "zh-cn"
+      default: "zh-cn"
+      selector:
+        text:
+          multiline: true
+    fallback_agent:
+      name: 备用AI
+      required: false
+      description: '如果本地处理失败，要使用的备用AI助手'
+      example: "conversation.zhi_pu_qing_yan"
+      selector:
+        entity:
+          domain: ["conversation"]
+          multiple: false
