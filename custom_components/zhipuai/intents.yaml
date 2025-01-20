@@ -1,64 +1,5 @@
 language: "zh-cn"
 intents:
-  HassTurnOn:
-    data:
-      - sentences:
-          - "打开{name}"
-          - "开启{name}"
-          - "turn on {name}"
-        slots:
-          name:
-            type: text
-          device_class:
-            type: list
-            values:
-              - awning
-              - blind
-              - curtain
-              - damper
-              - door
-              - garage
-              - gas
-              - gate
-              - outlet
-              - receiver
-              - shade
-              - shutter
-              - speaker
-              - switch
-              - tv
-              - water
-              - window
-              
-  HassTurnOff:
-    data:
-      - sentences:
-          - "关闭{name}"
-          - "关掉{name}"
-          - "turn off {name}"
-        slots:
-          name:
-            type: text
-          device_class:
-            type: list
-            values:
-              - awning
-              - blind
-              - curtain
-              - damper
-              - door
-              - garage
-              - gas
-              - gate
-              - outlet
-              - receiver
-              - shade
-              - shutter
-              - speaker
-              - switch
-              - tv
-              - water
-              - window
 
   MassPlayMediaAssist:
     data:
@@ -203,39 +144,14 @@ intents:
   ZhipuAIWebSearch:
     data:
       - sentences:
-          - "联网{time_query}{query}"
-          - "联网{time_query}的{query}"
-          - "帮我联网{time_query}{query}"
-          - "帮我上网查{time_query}{query}"
-          - "联网搜索{time_query}{query}"
-          - "联网查找{time_query}{query}"
-          - "联网查询{time_query}{query}"
-          - "在网上搜索{time_query}{query}"
-          - "在网上查找{time_query}{query}"
-          - "在网上查询{time_query}{query}"
-          - "上网搜索{time_query}{query}"
-          - "上网查找{time_query}{query}"
-          - "上网查询{time_query}{query}"
-          - "网上搜索{time_query}{query}"
-          - "网上查找{time_query}{query}"
-          - "网上查询{time_query}{query}"
-          - "互联网搜索{time_query}{query}"
-          - "互联网查找{time_query}{query}"
-          - "互联网查询{time_query}{query}"
-          - "百度{time_query}{query}"
-          - "谷歌{time_query}{query}"
-          - "必应{time_query}{query}"
-          - "搜一下{time_query}{query}"
-          - "查一下{time_query}{query}"
-          - "帮我找找{time_query}{query}"
-          - "帮忙查找{time_query}{query}"
-          - "帮忙查询{time_query}{query}"
-          - "search for {time_query}{query}"
-          - "search {time_query}{query}"
-          - "find {time_query}{query}"
-          - "look up {time_query}{query}"
-          - "google {time_query}{query}"
-          - "bing {time_query}{query}"
+          - "[帮我|请](联网|上网)<search>{query}"
+          - "[帮我|请](联网|上网)<search>[一下]{query}"
+          - "[帮我|请]在(网上|互联网)<search>{query}"
+          - "(网上|互联网)<search>{query}"
+          - "(百度|谷歌|必应)[一下|搜索|查找]{query}"
+          - "(search|google|bing)[for]{query}"
+        expansion_rules:
+          search: "(搜索|查找|查询)"
         slots:
           query:
             type: text
@@ -251,6 +167,8 @@ intents:
               - "明日"
               - "当前"
               - "现在"
+        requires_context:
+          web_search: true
 
   CameraAnalyzeIntent:
     data:
