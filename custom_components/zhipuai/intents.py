@@ -261,7 +261,7 @@ class HassTimerIntent(intent.IntentHandler):
         action_map = {"set": "start", "add": "start", "create": "start", "stop": "pause", "remove": "cancel", "delete": "cancel", "end": "finish", "提醒": "start"}
         action = action_map.get(action, action)
         LOGGER.info("Hass timer intent info - 原始插槽: %s", {"action": action, "duration": duration, "timer_name": timer_name})
-
+        
         timer_entities = self.hass.states.async_entity_ids("timer")
         return response.async_set_error(code="no_timer", message="未找到可用的计时器，请先在Home Assistant中创建一个计时器") if not timer_entities else await self._process_timer(response, action, duration, timer_name, timer_entities[0])
 
@@ -668,43 +668,47 @@ class ClimateSetSwingModeIntent(ClimateBaseIntent):
         except Exception as e:
             return self._set_error_response(response, "operation_failed", f"设置摆动模式失败：{str(e)}")
 
-class CoverControlAllIntent(intent.IntentHandler):
+class CoverControlAllIntent(intent.IntentHandler):    
     intent_type = "CoverControlAll"
-    slot_schema = {}
-
-    def __init__(self, hass: HomeAssistant) -> None:
-        self.hass = hass
-
+    slot_schema = {vol.Required("action"): str}
+    def __init__(self, hass: HomeAssistant) -> None: self.hass = hass
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
         response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
-        
-        covers = [state for state in self.hass.states.async_all() 
-                 if state.entity_id.startswith("cover.")]
-        
-        if not covers:
-            return self._set_error_response(response, "not_found", "未找到任何窗帘设备")
-        
         try:
-            for cover in covers:
-                await self.hass.services.async_call(
-                    "cover", "close_cover",
-                    {"entity_id": cover.entity_id}
-                )
-            return self._set_speech_response(response, f"已关闭所有{len(covers)}个窗帘")
-        except Exception as e:
-            return self._set_error_response(response, "operation_failed", f"操作失败: {str(e)}")
-
+            action = self.async_validate_slots(intent_obj.slots)["action"]["value"]
+            is_close = any(x in action for x in ["关", "close"])
+            service = "close_cover" if is_close else "open_cover"
+            action_text = "关闭" if is_close else "打开"
+            covers = [state.entity_id for state in self.hass.states.async_all() 
+                     if state.entity_id.startswith("cover.") and 
+                     not any(x in state.entity_id.lower() for x in ["garage", "车库"])]
+            if not covers: return self._set_error_response(response, "not_found", "未找到任何窗帘设备")
+            success_count, failed_entities = 0, []
+            for entity_id in covers:
+                try:
+                    await self.hass.services.async_call("cover", service, {"entity_id": entity_id}, blocking=True)
+                    success_count += 1
+                except Exception:
+                    try:
+                        tilt_service = "close_cover_tilt" if is_close else "open_cover_tilt"
+                        await self.hass.services.async_call("cover", tilt_service, {"entity_id": entity_id}, blocking=True)
+                        success_count += 1
+                    except Exception: failed_entities.append(entity_id)
+            if success_count == 0: return self._set_error_response(response, "operation_failed", "所有设备操作都失败了")
+            message = f"已{action_text} {success_count} 个窗帘"
+            if failed_entities: message += f"，但有 {len(failed_entities)} 个设备失败"
+            return self._set_speech_response(response, message)
+        except vol.Invalid as e: return self._set_error_response(response, "invalid_format", f"命令格式错误: {str(e)}")
+        except Exception as e: return self._set_error_response(response, "operation_failed", f"操作失败: {str(e)}")
     def _set_speech_response(self, response: intent.IntentResponse, speech: str) -> intent.IntentResponse:
         response.response_type = intent.IntentResponseType.ACTION_DONE
         response.speech = {"plain": {"speech": speech, "extra_data": None}}
         return response
-
     def _set_error_response(self, response: intent.IntentResponse, error: str, message: str) -> intent.IntentResponse:
         response.response_type = intent.IntentResponseType.ERROR
         response.error_code = error
         response.speech = {"plain": {"speech": message, "extra_data": None}}
         return response
-
 
 def extract_intent_info(user_input: str, hass: HomeAssistant) -> Optional[Dict[str, Any]]:
     entity_match = re.search(r'([\w_]+\.[\w_]+)', user_input)
@@ -712,23 +716,39 @@ def extract_intent_info(user_input: str, hass: HomeAssistant) -> Optional[Dict[s
     domain = entity_id.split('.')[0] if entity_id else None
     
     intent_mappings = {
-        r'打开|开启|解锁|turn on|open|unlock': 'turn_on',
-        r'关闭|关掉|锁定|turn off|close|lock': 'turn_off',
         r'切换|toggle': 'toggle',
         r'停止|暂停|stop|pause': 'stop',
         r'继续|resume': 'start',
         r'设置|调整|set|adjust': 'set',
+        r'打开|开启|unlock|turn on|open': 'turn_on',
+        r'关闭|关掉|lock|turn off|close': 'turn_off',
+    }
+    
+    special_domains = {
+        'cover': {'need_stop': True, 'need_position': True},  
+        'lock': {'need_sync': True}, 
+        'door': {'need_sync': True},  
+        'garage_door': {'need_sync': True},  
     }
     
     action = next((action for pattern, action in intent_mappings.items() 
                   if re.search(pattern, user_input)), 'turn_on')
     
-    action = 'lock' if domain == 'lock' and action == 'turn_on' else \
-             'unlock' if domain == 'lock' and action == 'turn_off' else action
-
-    intent_data = {'domain': domain, 'action': action, 'data': {'entity_id': entity_id}} if entity_id else None
-
-  
+    is_all = "所有" in user_input or "全部" in user_input
+    
+    if is_all and domain in special_domains:
+        action = 'all_' + action
+        intent_data = {
+            'domain': domain,
+            'action': action,
+            'data': {'entity_id': entity_id},
+            'special_handling': special_domains[domain]
+        }
+    else:
+        action = 'lock' if domain == 'lock' and action == 'turn_on' else \
+                'unlock' if domain == 'lock' and action == 'turn_off' else action
+        intent_data = {'domain': domain, 'action': action, 'data': {'entity_id': entity_id}} if entity_id else None
+    
     if action == 'set' and intent_data:
         number_match = re.search(r'(\d+)', user_input)
         value = int(number_match.group(1)) if number_match else None
@@ -740,7 +760,7 @@ def extract_intent_info(user_input: str, hass: HomeAssistant) -> Optional[Dict[s
             })
     
     return intent_data
-    
+
 class IntentHandler:
     def __init__(self, hass: HomeAssistant):
         self.hass = hass
@@ -773,7 +793,7 @@ class IntentHandler:
                     {"success": True, "message": f"已执行 {friendly_name} {self.climate_modes.get(data.get('hvac_mode'), data.get('hvac_mode'))}"} if domain == "climate" and service == "set_hvac_mode" else
                     {"success": True, "message": f"已执行 {friendly_name} {self.fan_modes.get(data.get('fan_mode'), data.get('fan_mode'))}"} if domain == "climate" and service == "set_fan_mode" else
                     {"success": True, "message": f"已执行 {friendly_name} 湿度{data.get('humidity')}%"} if domain == "climate" and service == "set_humidity" else
-                    {"success": True, "message": f"已执行 {friendly_name} 亮度{int(data['brightness'] * 100 / 255)}%"} if domain == "light" and service == "turn_on" and "brightness" in data else
+                    {"success": True, "message": f"已设置 {friendly_name} 亮度{int(data['brightness'] * 100 / 255)}%"} if domain == "light" and service == "turn_on" and "brightness" in data else
                     {"success": True, "message": f"已设置 {friendly_name} {'颜色' if 'rgb_color' in data else '色温'}"} if domain == "light" and service == "turn_on" and ("rgb_color" in data or "color_temp" in data) else
                     {"success": True, "message": f"已{'打开' if service == 'turn_on' else '关闭'} {friendly_name}"} if domain == "light" and service in ["turn_on", "turn_off"] else
                     {"success": True, "message": f"已{self.media_actions.get(service, service)} {friendly_name}"} if domain == "media_player" else
