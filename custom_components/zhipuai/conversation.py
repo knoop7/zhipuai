@@ -245,11 +245,22 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
             if options.get(CONF_LLM_HASS_API) and options[CONF_LLM_HASS_API] != "none":
                 self.llm_api = await llm.async_get_api(self.hass, options[CONF_LLM_HASS_API], llm_context)
                 tools = [_format_tool(tool, self.llm_api.custom_serializer) for tool in self.llm_api.tools]
-                if (h := self.hass.data.get("intent")) and not options.get(CONF_WEB_SEARCH, DEFAULT_WEB_SEARCH) and await h.async_match_intent(user_input.text, "ZhipuAIWebSearch", language=user_input.language): 
-                    return conversation.ConversationResult(response=intent_response.async_set_speech("联网搜索功能已关闭，请在配置中开启后再试。"), conversation_id=user_input.conversation_id)
-                tools = [t for t in tools if t["function"]["name"] != "web_search"]
+                web_search_keywords = ["联网", "搜索", "查询", "互联网", "上网", "百度", "谷歌", "必应"]
+                has_web_search = any(keyword in user_input.text for keyword in web_search_keywords)
+                if has_web_search and not options.get(CONF_WEB_SEARCH, DEFAULT_WEB_SEARCH):
+                    intent_response.async_set_speech("联网搜索功能已关闭，请在配置中开启后再试。")
+                    return conversation.ConversationResult(
+                        response=intent_response,
+                        conversation_id=user_input.conversation_id
+                    )
+                elif not has_web_search:
+                    tools = [t for t in tools if t["function"]["name"] != "web_search"]
         except HomeAssistantError as err:
             intent_response.async_set_error(intent.IntentResponseErrorCode.UNKNOWN, "获取 LLM API 时出错，将继续使用基本功能。")
+            return conversation.ConversationResult(
+                response=intent_response,
+                conversation_id=user_input.conversation_id
+            )
 
         if intent_info := extract_intent_info(user_input.text, self.hass):
             result = await self.intent_handler.handle_intent(intent_info)
