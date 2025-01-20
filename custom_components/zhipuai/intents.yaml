@@ -144,14 +144,11 @@ intents:
   ZhipuAIWebSearch:
     data:
       - sentences:
-          - "[帮我|请](联网|上网)<search>{query}"
-          - "[帮我|请](联网|上网)<search>[一下]{query}"
-          - "[帮我|请]在(网上|互联网)<search>{query}"
-          - "(网上|互联网)<search>{query}"
-          - "(百度|谷歌|必应)[一下|搜索|查找]{query}"
-          - "(search|google|bing)[for]{query}"
-        expansion_rules:
-          search: "(搜索|查找|查询)"
+          - "(联网|上网|互联网)(搜索|查找|查询){time_query}{query}"
+          - "(联网|上网|互联网)(搜索|查找|查询){time_query}的{query}"
+          - "[帮我|请](联网|上网|互联网)(搜索|查找|查询){time_query}{query}"
+          - "[帮我|请](联网|上网|互联网)(搜索|查找|查询){time_query}的{query}"
+          - "(百度|谷歌|必应)(搜索|查找|查询){time_query}{query}"
         slots:
           query:
             type: text
@@ -167,8 +164,6 @@ intents:
               - "明日"
               - "当前"
               - "现在"
-        requires_context:
-          web_search: true
 
   CameraAnalyzeIntent:
     data:
@@ -334,13 +329,23 @@ intents:
   CoverControlAll:
     data:
       - sentences:
-          - "关闭(?:所有|全部)(?:的)?窗帘"
-          - "(?:所有|全部)窗帘关闭"
-          - "把(?:所有|全部)(?:的)?窗帘(?:都)?关(?:上|闭)"
-          - "全部关闭(?:所有)?(?:的)?窗帘"
+          - "{action}(所有|全部)[的]窗帘"
+          - "(所有|全部)窗帘{action}"
+          - "把(所有|全部)[的]窗帘[都]{action}"
+          - "全部{action}[所有][的]窗帘"
+        slots:
+          action:
+            type: text
+            values:
+              - 关闭: close
+              - 关上: close
+              - 放下: close
+              - 打开: open
+              - 开启: open
+              - 升起: open
         response:
           success:
-            text: 已关闭所有{count}个窗帘
+            text: 已{action}所有{count}个窗帘
           error:
             not_found: 未找到任何窗帘设备
             operation_failed: 操作失败，{error}
