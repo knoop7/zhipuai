@@ -248,6 +248,9 @@ class ZhipuAIOptionsFlow(OptionsFlow):
 
                 if not errors:
                     self._data.update(user_input)
+                    if CONF_WEB_SEARCH not in self._data:
+                        self._data[CONF_WEB_SEARCH] = DEFAULT_WEB_SEARCH
+                    
                     if user_input.get(CONF_HISTORY_ANALYSIS):
                         return await self.async_step_history()
                     return self.async_create_entry(title="", data=self._data)
@@ -375,7 +378,8 @@ def zhipuai_config_option_schema(
         ),
         vol.Optional(
             CONF_WEB_SEARCH,
-            default=DEFAULT_WEB_SEARCH,
+            default=options.get(CONF_WEB_SEARCH, DEFAULT_WEB_SEARCH),
+            description={"suggested_value": options.get(CONF_WEB_SEARCH, DEFAULT_WEB_SEARCH)},
         ): bool,
         vol.Optional(
             CONF_HISTORY_ANALYSIS,
