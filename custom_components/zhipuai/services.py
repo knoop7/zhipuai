@@ -10,7 +10,7 @@ import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.components import camera
-from homeassistant.components.camera import Image as CameraImage
+from homeassistant.components.camera.const import DOMAIN as CAMERA_DOMAIN
 from homeassistant.exceptions import ServiceValidationError
 import requests
 import json
@@ -30,8 +30,66 @@ from .const import (
 class ImageProcessor:
     def __init__(self, hass: HomeAssistant):
         self.hass = hass
+        self.www_dir = os.path.join(self.hass.config.config_dir, 'www')
+        self.frame_dir = os.path.join(self.www_dir, 'zhipuai_cam')
+        if not os.path.exists(self.frame_dir):
+            os.makedirs(self.frame_dir, exist_ok=True)
 
-    async def resize_image(self, image_data: bytes, target_width: int = 1280, is_gif: bool = False) -> str:
+    async def save_frame(self, image_data: bytes, entity_id: str, enhanced_img: Image.Image = None) -> str:
+        try:
+            camera_name = entity_id.split('.')[1]
+            filename = f"{camera_name}.jpg"
+            filepath = os.path.join(self.frame_dir, filename)
+            
+            def _save_image():
+                if enhanced_img:
+                    enhanced_img.save(filepath, 'JPEG', quality=95)
+                else:
+                    with open(filepath, 'wb') as f:
+                        f.write(image_data)
+            
+            await self.hass.async_add_executor_job(_save_image)
+            return f"/local/zhipuai_cam/{filename}"
+        except Exception as e:
+            LOGGER.info(f"保存分析帧失败: {str(e)}")
+            return None
+
+    def enhance_center(self, img, crop_ratio=0.5):
+        orig_width, orig_height = img.size
+        
+        crop_width = int(orig_width * crop_ratio)
+        crop_height = int(orig_height * crop_ratio)
+        
+        crop_width = max(100, crop_width)
+        crop_height = max(100, crop_height)
+        
+        center_x = orig_width // 2
+        center_y = orig_height // 2
+        
+        left = center_x - (crop_width // 2)
+        top = center_y - (crop_height // 2)
+        right = left + crop_width
+        bottom = top + crop_height
+        
+        if left < 0:
+            right -= left
+            left = 0
+        if top < 0:
+            bottom -= top
+            top = 0
+        if right > orig_width:
+            left -= (right - orig_width)
+            right = orig_width
+        if bottom > orig_height:
+            top -= (bottom - orig_height)
+            bottom = orig_height
+            
+        img = img.crop((left, top, right, bottom))
+        img = img.resize((1920, 1080), Image.Resampling.LANCZOS)
+        
+        return img
+
+    async def resize_image(self, image_data: bytes, is_gif: bool = False, save_frame: bool = False, entity_id: str = None, crop_ratio: float = 0.5) -> str:
         try:
             img_byte_arr = io.BytesIO(image_data)
             img = await self.hass.async_add_executor_job(Image.open, img_byte_arr)
@@ -42,40 +100,52 @@ class ImageProcessor:
                     for frame in range(img.n_frames):
                         img.seek(frame)
                         new_frame = await self.hass.async_add_executor_job(lambda x: x.convert('RGB'), img.copy())
-                        
-                        width, height = new_frame.size
-                        aspect_ratio = width / height
-                        target_height = int(target_width / aspect_ratio)
-                        if width > target_width or height > target_height:
-                            new_frame = await self.hass.async_add_executor_job(lambda x: x.resize((target_width, target_height)), new_frame)
+                        new_frame = await self.hass.async_add_executor_job(
+                            self.enhance_center, new_frame, crop_ratio
+                        )
                         frames.append(new_frame)
                     
+                    if save_frame and entity_id:
+                        await self.save_frame(image_data, entity_id, frames[0])
+                    
                     output = io.BytesIO()
-                    frames[0].save(output, save_all=True, append_images=frames[1:], format='GIF', duration=img.info.get('duration', 100), loop=0)
+                    frames[0].save(
+                        output, 
+                        save_all=True, 
+                        append_images=frames[1:], 
+                        format='GIF',
+                        duration=img.info.get('duration', 100),
+                        loop=0,
+                        quality=95
+                    )
                     base64_image = base64.b64encode(output.getvalue()).decode('utf-8')
                     return base64_image
                 except Exception as e:
-                    LOGGER.error(f"GIF处理错误: {str(e)}")
+                    LOGGER.info(f"GIF处理错误: {str(e)}")
                     img.seek(0)
             
             if img.mode == 'RGBA' or img.format == 'GIF':
                 img = await self.hass.async_add_executor_job(lambda x: x.convert('RGB'), img)
             
-            width, height = img.size
-            aspect_ratio = width / height
-            target_height = int(target_width / aspect_ratio)
-
-            if width > target_width or height > target_height:
-                img = await self.hass.async_add_executor_job(lambda x: x.resize((target_width, target_height)), img)
+            enhanced_img = await self.hass.async_add_executor_job(
+                self.enhance_center, img, crop_ratio
+            )
+            
+            if save_frame and entity_id:
+                await self.save_frame(image_data, entity_id, enhanced_img)
 
             img_byte_arr = io.BytesIO()
-            await self.hass.async_add_executor_job(lambda i, b: i.save(b, format='JPEG'), img, img_byte_arr)
+            await self.hass.async_add_executor_job(
+                lambda i, b: i.save(b, format='JPEG', quality=95, optimize=True), 
+                enhanced_img, 
+                img_byte_arr
+            )
             base64_image = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
             
             return base64_image
         except Exception as e:
-            LOGGER.error(f"图像处理错误: {str(e)}")
-            raise ServiceValidationError(f"图像处理失败: {str(e)}")
+            LOGGER.info(f"图像处理错误: {str(e)}")
+            raise ValueError(f"图像处理失败: {str(e)}")
 
     def _similarity_score(self, previous_frame, current_frame_gray):
         K1 = 0.005
@@ -107,7 +177,8 @@ IMAGE_ANALYZER_SCHEMA = vol.Schema({
     vol.Optional(CONF_TEMPERATURE, default=RECOMMENDED_TEMPERATURE): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=1.0)),
     vol.Optional(CONF_MAX_TOKENS, default=RECOMMENDED_MAX_TOKENS): vol.All(vol.Coerce(int), vol.Range(min=1, max=1024)),
     vol.Optional("stream", default=False): cv.boolean,
-    vol.Optional("target_width", default=1280): vol.All(vol.Coerce(int), vol.Range(min=512, max=1920)),
+    vol.Optional("save_frame", default=False): cv.boolean,
+    vol.Optional("crop_ratio", default=0.5): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=1.0)),
 })
 
 VIDEO_ANALYZER_SCHEMA = vol.Schema(
@@ -122,9 +193,6 @@ VIDEO_ANALYZER_SCHEMA = vol.Schema(
             vol.Coerce(int), vol.Range(min=1, max=1024)
         ),
         vol.Optional("stream", default=False): cv.boolean,
-        vol.Optional("target_width", default=1280): vol.All(
-            vol.Coerce(int), vol.Range(min=512, max=1920)
-        ),
     }
 )
 
@@ -135,10 +203,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         try:
             config_entries = hass.config_entries.async_entries(DOMAIN)
             if not config_entries:
-                raise ValueError("未找到 ZhipuAI")
+                error_msg = "未找到 ZhipuAI"
+                LOGGER.info(error_msg)
+                raise ValueError(error_msg)
+                
             api_key = config_entries[0].data.get("api_key")
             if not api_key:
-                raise ValueError("在配置中找不到 API 密钥")
+                error_msg = "在配置中找不到 API 密钥"
+                LOGGER.info(error_msg)
+                raise ValueError(error_msg)
 
             image_data = None
             if image_file := call.data.get("image_file"):
@@ -147,49 +220,72 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                         image_file = os.path.join(hass.config.config_dir, image_file)
                     
                     if os.path.isdir(image_file):
-                        raise ServiceValidationError(f"提供的路径是一个目录: {image_file}")
+                        error_msg = f"提供的路径是一个目录: {image_file}"
+                        LOGGER.info(error_msg)
+                        raise ValueError(error_msg)
                     
                     if not os.path.exists(image_file):
-                        raise ServiceValidationError(f"图片文件不存在: {image_file}")
+                        error_msg = f"图片文件不存在: {image_file}"
+                        LOGGER.info(error_msg)
+                        raise ValueError(error_msg)
                     
                     with open(image_file, "rb") as f:
                         image_data = f.read()
                 except IOError as e:
-                    LOGGER.error(f"读取图片文件失败 {image_file}: {str(e)}")
-                    raise ServiceValidationError(f"读取图片文件失败: {str(e)}")
+                    error_msg = f"读取图片文件失败: {str(e)}"
+                    LOGGER.info(error_msg)
+                    raise ValueError(error_msg)
                 
             elif image_entity := call.data.get("image_entity"):
                 try:
                     if not image_entity.startswith("camera."):
-                        raise ServiceValidationError(f"无效的摄像头实体ID: {image_entity}")
+                        error_msg = f"无效的摄像头实体ID: {image_entity}"
+                        LOGGER.info(error_msg)
+                        raise ValueError(error_msg)
 
                     if not hass.states.get(image_entity):
-                        raise ServiceValidationError(f"摄像头实体不存在: {image_entity}")
+                        error_msg = f"摄像头实体不存在: {image_entity}"
+                        LOGGER.info(error_msg)
+                        raise ValueError(error_msg)
 
                     try:
-                        image: CameraImage = await camera.async_get_image(hass, image_entity, timeout=10)
+                        image = await camera.async_get_image(hass, image_entity, timeout=10)
                         
                         if not image or not image.content:
-                            raise ServiceValidationError(f"无法从摄像头获取图片: {image_entity}")
+                            error_msg = f"无法从摄像头获取图片: {image_entity}"
+                            LOGGER.info(error_msg)
+                            raise ValueError(error_msg)
                         
                         image_data = image.content
-                        base64_image = await image_processor.resize_image(image_data, target_width=call.data.get("target_width", 1280), is_gif=True)
+                        
+                        if call.data.get("save_frame", False):
+                            frame_url = await image_processor.save_frame(image_data, image_entity)
+                            if frame_url:
+                                LOGGER.info(f"分析帧已保存: {frame_url}")
+                        
+                        base64_image = await image_processor.resize_image(image_data, is_gif=True, save_frame=call.data.get("save_frame", False), entity_id=image_entity, crop_ratio=call.data.get("crop_ratio", 0.5))
                         
                     except (camera.CameraEntityImageError, TimeoutError) as e:
-                        raise ServiceValidationError(f"获取摄像头图片失败: {str(e)}")
+                        error_msg = f"获取摄像头图片失败: {str(e)}"
+                        LOGGER.info(error_msg)
+                        raise ValueError(error_msg)
 
                 except Exception as e:
-                    LOGGER.error(f"从实体获取图片失败 {image_entity}: {str(e)}")
-                    raise ServiceValidationError(f"从实体获取图片失败: {str(e)}")
+                    error_msg = f"从实体获取图片失败: {str(e)}"
+                    LOGGER.info(error_msg)
+                    raise ValueError(error_msg)
             
             if not image_data:
-                raise ServiceValidationError("未提供图片数据")
+                error_msg = "未提供图片数据"
+                LOGGER.info(error_msg)
+                raise ValueError(error_msg)
 
             try:
-                base64_image = await image_processor.resize_image(image_data, target_width=call.data.get("target_width", 1280))
+                base64_image = await image_processor.resize_image(image_data, save_frame=call.data.get("save_frame", False), entity_id=call.data.get("image_entity"), crop_ratio=call.data.get("crop_ratio", 0.5))
             except Exception as e:
-                LOGGER.error(f"图像处理失败: {str(e)}")
-                raise ServiceValidationError(f"图像处理失败: {str(e)}")
+                error_msg = f"图像处理失败: {str(e)}"
+                LOGGER.info(error_msg)
+                raise ValueError(error_msg)
 
             headers = {
                 'Content-Type': 'application/json',
@@ -224,7 +320,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 response.raise_for_status()
             except requests.exceptions.RequestException as e:
                 LOGGER.error(f"API请求失败: {str(e)}")
-                raise ServiceValidationError(f"API请求失败: {str(e)}")
+                return {"success": False, "message": f"API请求失败: {str(e)}"}
 
             if call.data.get("stream", False):
                 event_id = f"zhipuai_response_{int(time.time())}"
@@ -258,7 +354,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     
                 except Exception as e:
                     error_msg = f"处理流式响应时出错: {str(e)}"
-                    LOGGER.error(error_msg)
+                    LOGGER.info(error_msg)
                     hass.bus.async_fire(f"{DOMAIN}_stream_error", {"event_id": event_id, "error": error_msg})
                     return {"success": False, "message": error_msg}
             else:
@@ -272,7 +368,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     return {"success": False, "message": error_msg}
         except Exception as e:
             error_msg = f"Image analysis failed: {str(e)}"
-            LOGGER.error(f"图像分析错误: {str(e)}")
+            LOGGER.info(f"图像分析错误: {str(e)}")
             return {"success": False, "message": error_msg}
 
     async def handle_video_analyzer(call: ServiceCall) -> None:
@@ -289,29 +385,39 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 video_file = os.path.join(hass.config.config_dir, video_file)
             
             if not os.path.isfile(video_file):
-                LOGGER.error(f"视频文件未找到或是目录: {video_file}")
-                return {"success": False, "message": f"视频文件未找到或是目录: {video_file}"}
+                error_msg = f"视频文件未找到或是目录: {video_file}"
+                LOGGER.info(error_msg)
+                raise ValueError(error_msg)
 
             try:
                 def read_video_file():
-                    with open(video_file, "rb") as f:
-                        return f.read()
+                    try:
+                        with open(video_file, "rb") as f:
+                            return f.read()
+                    except IOError as e:
+                        error_msg = f"读取视频文件失败: {str(e)}"
+                        LOGGER.info(error_msg)
+                        raise ValueError(error_msg)
+                        
                 video_data = await hass.async_add_executor_job(read_video_file)
-            except IOError as e:
-                LOGGER.error(f"读取视频文件失败 {video_file}: {str(e)}")
-                return {"success": False, "message": f"读取视频文件失败: {str(e)}"}
+            except Exception as e:
+                error_msg = f"读取视频文件失败: {str(e)}"
+                LOGGER.info(error_msg)
+                raise ValueError(error_msg)
 
             if call.data.get("model") != "glm-4v-plus":
-                LOGGER.warning("视频分析仅支持glm-4v-plus模型，强制使用glm-4v-plus")
+                LOGGER.info("视频分析仅支持glm-4v-plus模型，强制使用glm-4v-plus")
             
             video_size = len(video_data) / (1024 * 1024)
             if video_size > 20:
-                LOGGER.error(f"视频文件大小 ({video_size:.1f}MB) 超过20MB限制")
-                return {"success": False, "message": f"视频文件大小 ({video_size:.1f}MB) 超过20MB限制"}
+                error_msg = f"视频文件大小 ({video_size:.1f}MB) 超过20MB限制"
+                LOGGER.info(error_msg)
+                raise ValueError(error_msg)
 
             if not video_file.lower().endswith('.mp4'):
-                LOGGER.error("视频文件必须是MP4格式")
-                return {"success": False, "message": "视频文件必须是MP4格式"}
+                error_msg = "视频文件必须是MP4格式"
+                LOGGER.info(error_msg)
+                raise ValueError(error_msg)
 
             base64_video = base64.b64encode(video_data).decode('utf-8')
 
@@ -421,7 +527,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     hass.bus.async_fire(f"{DOMAIN}_response", {"type": "video_analysis", "content": content, "success": True})
                     return {"success": True, "message": content}
                 else:
-                    error_msg = "No response from API"
+                    error_msg = "API 无响应"
                     return {"success": False, "message": error_msg}
         except Exception as e:
             error_msg = f"Video analysis failed: {str(e)}"

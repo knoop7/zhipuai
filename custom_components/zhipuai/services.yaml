@@ -1,6 +1,6 @@
 image_analyzer:
-  name: 图像分析
-  description: 使用智谱GLM-4V模型分析图像
+  name: 摄像分析
+  description: 使用智谱GLM-4V模型分析摄像或图像
   fields:
     model:
       name: 模型
@@ -31,9 +31,9 @@ image_analyzer:
         text:
           multiline: false
     image_entity:
-      name: 图片实体
+      name: 摄像头或图片实体
       required: false
-      description: '要分析的图片或摄像头实体'
+      description: '请选择要分析的实体'
       example: 'camera.front_door'
       selector:
         entity:
@@ -42,7 +42,7 @@ image_analyzer:
     temperature:
       name: 温度
       required: false
-      description: '控制输出的随机性（0.1-1.0）。值越低，输出越稳定'
+      description: '控制输出的随机性 0.1-1.0 值越低，输出越稳定'
       example: 0.8
       default: 0.8
       selector:
@@ -69,6 +69,25 @@ image_analyzer:
       default: false
       selector:
         boolean: {}
+    crop_ratio:
+      name: 放大镜（进阶）
+      required: false
+      default: 0.5
+      description: '暴露更多细节让AI分析，可以用作分析车牌号、人脸、手部细节等，本工具为裁切工具，会自动裁剪并图像中心区域到指定宽度，高度将按16:9比例自动调整。数值越小裁切越多，建议 0.4-0.8 为佳'
+      example: 0.5
+      selector:
+        number:
+          min: 0.1
+          max: 1.0
+          step: 0.1
+    save_frame:
+      name: 保存分析帧（实验）
+      required: false
+      default: false
+      description: '将分析的帧保存到 /www/zhipuai_cam 目录，现有文件将被覆盖。以作为自动化或脚本快速通知分析结果展示，也可以查看放大镜的图片效果'
+      selector:
+        boolean: {}
+
 
 video_analyzer:
   name: 视频分析
@@ -94,11 +113,22 @@ video_analyzer:
     video_file:
       name: 视频文件
       required: true
-      description: '本地视频文件路径（支持mp4格式，建议时长不超过30秒）'
+      description: '视频文件路径（支持mp4格式，最大50MB，最大分辨率6000x6000像素）'
       example: "/config/www/tmp/video.mp4"
       selector:
         text:
           multiline: false
+    crop_ratio:
+      name: 裁切比例
+      required: false
+      default: 0.5
+      description: '设置中心区域裁切比例（0.1-1.0）。数值越小，裁切越多，放大倍数越大。例如：0.5表示裁切到原始尺寸的50%，0.3表示裁切到30%。'
+      example: 0.5
+      selector:
+        number:
+          min: 0.1
+          max: 1.0
+          step: 0.1
     temperature:
       name: 温度
       required: false

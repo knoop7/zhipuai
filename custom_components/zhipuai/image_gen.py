@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import os
-import uuid
 import aiohttp
 import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -63,21 +61,22 @@ async def async_setup_image_gen(hass: HomeAssistant) -> None:
 
                 image_url = result["data"][0]["url"]
                 
-                # 下载图片并保存到本地
                 www_dir = hass.config.path("www")
-                if not os.path.exists(www_dir):
-                    os.makedirs(www_dir)
+                img_dir = os.path.join(www_dir, "zhipuai_img")
+                if not os.path.exists(img_dir):
+                    os.makedirs(img_dir, exist_ok=True)
 
-                filename = f"zhipuai_image_{uuid.uuid4().hex[:8]}.jpg"
-                filepath = os.path.join(www_dir, filename)
+                filename = os.path.basename(image_url.split('?')[0]) or 'zhipuai_sc.png'
+                local_path = os.path.join(img_dir, filename)
                 
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(image_url) as img_response:
-                        img_response.raise_for_status()
-                        with open(filepath, "wb") as f:
-                            f.write(await img_response.read())
-
-                local_url = f"/local/{filename}"
+                    async with session.get(image_url) as response:
+                        if response.status == 200:
+                            content = await response.content.read()
+                            with open(local_path, "wb") as f:
+                                f.write(content)
+                            
+                            local_url = f"/local/zhipuai_img/{filename}"
                 
                 hass.bus.async_fire(f"{DOMAIN}_response", {
                     "type": "image_gen",
