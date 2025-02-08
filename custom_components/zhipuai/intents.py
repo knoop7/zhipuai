@@ -72,7 +72,6 @@ async def async_setup_intents(hass: HomeAssistant) -> None:
     intent.async_register(hass, ClimateSetHumidityIntent(hass))
     intent.async_register(hass, ClimateSetSwingModeIntent(hass))
     intent.async_register(hass, CoverControlAllIntent(hass))
-    intent.async_register(hass, HassLightSetAllIntent(hass))
     intent.async_register(hass, MassPlayMediaAssist(hass))
     intent.async_register(hass, ZhipuAIImageGenIntent(hass))
 
