@@ -54,7 +54,7 @@ ERROR_NO_TIMER = "no_timer"
 ERROR_NO_MESSAGE = "no_message"
 ERROR_INVALID_POSITION = "invalid_position"
 INTENT_MASS_PLAY_MEDIA = "MassPlayMediaAssist"
-
+INTENT_IMAGE_GEN = "ZhipuAIImageGen"
 
 async def async_setup_intents(hass: HomeAssistant) -> None:
     yaml_path = os.path.join(os.path.dirname(__file__), "intents.yaml")
@@ -74,6 +74,7 @@ async def async_setup_intents(hass: HomeAssistant) -> None:
     intent.async_register(hass, CoverControlAllIntent(hass))
     intent.async_register(hass, HassLightSetAllIntent(hass))
     intent.async_register(hass, MassPlayMediaAssist(hass))
+    intent.async_register(hass, ZhipuAIImageGenIntent(hass))
 
 class CameraAnalyzeIntent(intent.IntentHandler):
     intent_type = INTENT_CAMERA_ANALYZE
@@ -846,7 +847,6 @@ class MassPlayMediaAssist(intent.IntentHandler):
     async def _process_query(self, query: str, target: dict, response: intent.IntentResponse) -> intent.IntentResponse:
         LOGGER.info(f"开始处理音乐查询: {query}")
         
-        # 构造搜索参数
         search_data = {
             "limit": 5,
             "library_only": False,
@@ -855,7 +855,6 @@ class MassPlayMediaAssist(intent.IntentHandler):
         }
         
         try:
-            # 先尝试搜索本地音乐库
             search_data["library_only"] = True
             LOGGER.info(f"搜索本地音乐库，参数: {search_data}")
             local_result = await self.hass.services.async_call(
@@ -868,7 +867,6 @@ class MassPlayMediaAssist(intent.IntentHandler):
             
             items = local_result.get("items", []) if local_result and isinstance(local_result, dict) else []
             
-            # 如果本地没有找到，尝试在线搜索
             if not items:
                 search_data["library_only"] = False
                 LOGGER.info(f"本地未找到，尝试在线搜索，参数: {search_data}")
@@ -884,14 +882,12 @@ class MassPlayMediaAssist(intent.IntentHandler):
             if not items:
                 return response.async_set_error("no_results", f"未找到音乐: {query}")
             
-            # 获取第一个搜索结果
             first_item = items[0]
             play_data = {
                 "media_id": first_item.get("item_id"),
                 "media_type": first_item.get("type", "track")
             }
             
-            # 执行播放
             LOGGER.info(f"找到音乐，准备播放: {play_data}")
             await self.hass.services.async_call(
                 "music_assistant", 
@@ -900,7 +896,6 @@ class MassPlayMediaAssist(intent.IntentHandler):
                 target=target if target else None
             )
             
-            # 构造播放位置描述
             target_desc = []
             if target.get("area_id"):
                 areas = [self._area_reg.async_get_area(a_id).name for a_id in target["area_id"]]
@@ -909,7 +904,6 @@ class MassPlayMediaAssist(intent.IntentHandler):
                 players = [self.hass.states.get(e_id).attributes.get("friendly_name", "") for e_id in target["entity_id"]]
                 target_desc.extend([f"用{player}" for player in players])
             
-            # 构造响应消息
             location = f"{' '.join(target_desc)}" if target_desc else ""
             song_info = f"{first_item.get('name', '')}"
             if first_item.get('artist'):
@@ -926,6 +920,32 @@ class MassPlayMediaAssist(intent.IntentHandler):
 
     def get_slot_value(self, slot_data):
         return None if not slot_data else slot_data.get('value') if isinstance(slot_data, dict) else getattr(slot_data, 'value', None) if hasattr(slot_data, 'value') else str(slot_data)
+
+class ZhipuAIImageGenIntent(intent.IntentHandler):    
+    intent_type = INTENT_IMAGE_GEN
+    slot_schema = {vol.Required("prompt"): str}
+
+    def __init__(self, hass: HomeAssistant): super().__init__(); self.hass = hass
+
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        prompt = self.get_slot_value(slots.get("prompt"))
+        response = intent.IntentResponse(intent_obj)
+        try:
+            result = await self.hass.services.async_call("zhipuai", "image_gen", 
+                {"model": "cogview-3-flash", "size": "1024x1024", "prompt": prompt}, blocking=True, return_response=True)
+            if result and result.get("success") and (original_url := result.get("original_url")):
+                response.response_type = intent.IntentResponseType.ACTION_DONE
+                response.async_set_speech(original_url)
+            else:
+                response.response_type = intent.IntentResponseType.ERROR
+                response.async_set_error("generation_failed", "图片生成失败")
+        except Exception as e:
+            response.response_type = intent.IntentResponseType.ERROR
+            response.async_set_error("service_call_error", f"调用服务失败: {str(e)}")
+        return response
+
+    def get_slot_value(self, slot_data): return None if not slot_data else slot_data.get("value")
 
 def extract_intent_info(user_input: str, hass: HomeAssistant) -> Optional[Dict[str, Any]]:
     entity_match = re.search(r'([\w_]+\.[\w_]+)', user_input)

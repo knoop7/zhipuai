@@ -47,6 +47,16 @@ from .const import (
     DEFAULT_WEB_SEARCH,
     CONF_HISTORY_INTERVAL,
     DEFAULT_HISTORY_INTERVAL,
+    CONF_PRESENCE_PENALTY,
+    DEFAULT_PRESENCE_PENALTY,
+    CONF_FREQUENCY_PENALTY,
+    DEFAULT_FREQUENCY_PENALTY,
+    CONF_STOP_SEQUENCES,
+    DEFAULT_STOP_SEQUENCES,
+    CONF_TOOL_CHOICE,
+    DEFAULT_TOOL_CHOICE,
+    CONF_LOGIT_BIAS,
+    DEFAULT_LOGIT_BIAS,
 )
 
 
@@ -166,6 +176,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
         self.entry = entry
         self.hass = hass
         self.history: dict[str, list[ChatCompletionMessageParam]] = {}
+        self.current_context_id: str | None = None  
         self._attr_unique_id = entry.entry_id
         self._attr_device_info = dr.DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
@@ -217,6 +228,13 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
         await super().async_will_remove_from_hass()
 
     async def async_process(self, user_input: conversation.ConversationInput) -> conversation.ConversationResult:
+        if not self.current_context_id:
+            self.current_context_id = f"context_{int(time.time())}"
+        if self.current_context_id not in self.history:
+            self.history[self.current_context_id] = []
+            
+        messages = self.history[self.current_context_id]
+
         if (user_input.context and user_input.context.id and user_input.context.id.startswith(f"{DOMAIN}_service_call")) or getattr(user_input, "prefer_local_intents", False):
             return None
 
@@ -420,7 +438,12 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                     "max_tokens": min(options.get(CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS), 4096),
                     "top_p": options.get(CONF_TOP_P, RECOMMENDED_TOP_P),
                     "temperature": options.get(CONF_TEMPERATURE, RECOMMENDED_TEMPERATURE),
-                    "request_id": conversation_id
+                    "request_id": self.current_context_id,
+                    "presence_penalty": options.get(CONF_PRESENCE_PENALTY, DEFAULT_PRESENCE_PENALTY),
+                    "frequency_penalty": options.get(CONF_FREQUENCY_PENALTY, DEFAULT_FREQUENCY_PENALTY),
+                    "stop": options.get(CONF_STOP_SEQUENCES, DEFAULT_STOP_SEQUENCES),
+                    "tool_choice": options.get(CONF_TOOL_CHOICE, DEFAULT_TOOL_CHOICE),
+                    "logit_bias": options.get(CONF_LOGIT_BIAS, DEFAULT_LOGIT_BIAS)
                 }
                 if tools:
                     payload["tools"] = tools

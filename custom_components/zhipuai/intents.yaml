@@ -326,29 +326,6 @@ intents:
           invalid_mode: 不支持的摆动模式。{name}支持的模式有：{modes}
           operation_failed: 设置摆动模式失败：{error}
 
-  CoverControlAll:
-    data:
-      - sentences:
-          - "{action}(所有|全部)[的]窗帘"
-          - "(所有|全部)窗帘{action}"
-          - "把(所有|全部)[的]窗帘[都]{action}"
-          - "全部{action}[所有][的]窗帘"
-        slots:
-          action:
-            type: text
-            values:
-              - 关闭: close
-              - 关上: close
-              - 放下: close
-              - 打开: open
-              - 开启: open
-              - 升起: open
-        response:
-          success:
-            text: 已{action}所有{count}个窗帘
-          error:
-            not_found: 未找到任何窗帘设备
-            operation_failed: 操作失败，{error}
 
   ClimateSetHumidity:
     data:

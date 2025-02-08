@@ -53,6 +53,14 @@ from .const import (
     DEFAULT_HISTORY_INTERVAL,
     CONF_REQUEST_TIMEOUT,
     DEFAULT_REQUEST_TIMEOUT,
+    CONF_PRESENCE_PENALTY,
+    DEFAULT_PRESENCE_PENALTY,
+    CONF_FREQUENCY_PENALTY,
+    DEFAULT_FREQUENCY_PENALTY,
+    CONF_STOP_SEQUENCES,
+    DEFAULT_STOP_SEQUENCES,
+    CONF_TOOL_CHOICE,
+    DEFAULT_TOOL_CHOICE,
 )
 
 ZHIPUAI_MODELS = [
@@ -399,12 +407,86 @@ def zhipuai_config_option_schema(
                 CONF_TOP_P,
                 description={"suggested_value": options.get(CONF_TOP_P)},
                 default=RECOMMENDED_TOP_P,
-            ): NumberSelector(NumberSelectorConfig(min=0, max=1, step=0.05)),
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=0.0,
+                    max=1.0,
+                    step=0.1,
+                    mode="box",
+                )
+            ),
             vol.Optional(
                 CONF_TEMPERATURE,
                 description={"suggested_value": options.get(CONF_TEMPERATURE)},
                 default=RECOMMENDED_TEMPERATURE,
-            ): NumberSelector(NumberSelectorConfig(min=0, max=2, step=0.05)),
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=0.0,
+                    max=2.0,
+                    step=0.1,
+                    mode="box",
+                )
+            ),
+            vol.Optional(
+                CONF_PRESENCE_PENALTY,
+                description={"suggested_value": options.get(CONF_PRESENCE_PENALTY, DEFAULT_PRESENCE_PENALTY)},
+                default=DEFAULT_PRESENCE_PENALTY,
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=-2.0,
+                    max=2.0,
+                    step=0.1,
+                    mode="box",
+                )
+            ),
+            vol.Optional(
+                CONF_FREQUENCY_PENALTY,
+                description={"suggested_value": options.get(CONF_FREQUENCY_PENALTY, DEFAULT_FREQUENCY_PENALTY)},
+                default=DEFAULT_FREQUENCY_PENALTY,
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=-2.0,
+                    max=2.0,
+                    step=0.1,
+                    mode="box",
+                )
+            ),
+            vol.Optional(
+                CONF_STOP_SEQUENCES,
+                description={"suggested_value": options.get(CONF_STOP_SEQUENCES, DEFAULT_STOP_SEQUENCES)},
+                default=DEFAULT_STOP_SEQUENCES,
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value="\\n", label="stop_sequences.\\n"),
+                        SelectOptionDict(value="。", label="stop_sequences.。"),
+                        SelectOptionDict(value="！", label="stop_sequences.！"),
+                        SelectOptionDict(value="？", label="stop_sequences.？"),
+                        SelectOptionDict(value="；", label="stop_sequences.；"),
+                        SelectOptionDict(value="：", label="stop_sequences.："),
+                        SelectOptionDict(value=",", label="stop_sequences.,"),
+                        SelectOptionDict(value=".", label="stop_sequences..")
+                    ],
+                    multiple=True,
+                    mode="dropdown",
+                    translation_key="stop_sequences"
+                )
+            ),
+            vol.Optional(
+                CONF_TOOL_CHOICE,
+                description={"suggested_value": options.get(CONF_TOOL_CHOICE, DEFAULT_TOOL_CHOICE)},
+                default=DEFAULT_TOOL_CHOICE,
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value="auto", label="tool_choice.auto"),
+                        SelectOptionDict(value="none", label="tool_choice.none"),
+                        SelectOptionDict(value="force", label="tool_choice.force")
+                    ],
+                    mode="dropdown",
+                    translation_key="tool_choice"
+                )
+            ),
         })
 
     return schema
