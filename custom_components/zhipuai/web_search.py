@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import uuid
 import time
 from typing import Any, Dict
@@ -20,9 +19,13 @@ from .const import (
     DEFAULT_WEB_SEARCH
 )
 
+WEB_SEARCH_API_URL = "https://open.bigmodel.cn/api/paas/v4/web_search"
+
 WEB_SEARCH_SCHEMA = vol.Schema({
     vol.Required("query"): cv.string,
     vol.Optional("stream", default=False): cv.boolean,
+    vol.Optional("search_engine", default="search_std"): cv.string,
+    vol.Optional("time_query", default=""): cv.string,
 })
 
 async def async_setup_web_search(hass: HomeAssistant) -> None:
@@ -43,25 +46,31 @@ async def async_setup_web_search(hass: HomeAssistant) -> None:
 
             query = call.data["query"]
             stream = call.data.get("stream", False)
+            search_engine = call.data.get("search_engine", "search_std")
+            time_query = call.data.get("time_query", "")
+            
             request_id = str(uuid.uuid4())
+            
+            
+            search_query = query
+            if time_query:
+                search_query = f"{query} {time_query}"
 
-            messages = [{"role": "user", "content": query}]
             payload = {
                 "request_id": request_id,
-                "tool": "web-search-pro",
-                "stream": stream,
-                "messages": messages
+                "search_engine": search_engine,
+                "search_query": search_query
             }
 
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             }
-
+            
             try:
                 response = await hass.async_add_executor_job(
                     lambda: requests.post(
-                        ZHIPUAI_WEB_SEARCH_URL,
+                        WEB_SEARCH_API_URL,
                         headers=headers,
                         json=payload,
                         stream=stream,
@@ -70,7 +79,6 @@ async def async_setup_web_search(hass: HomeAssistant) -> None:
                 )
                 response.raise_for_status()
             except requests.exceptions.RequestException as e:
-                LOGGER.error(f"API请求失败: {str(e)}")
                 raise ServiceValidationError(f"API请求失败: {str(e)}")
 
             if stream:
@@ -93,27 +101,23 @@ async def async_setup_web_search(hass: HomeAssistant) -> None:
                                     break
                                 
                                 json_data = json.loads(line_text)
-                                if 'choices' in json_data and json_data['choices']:
-                                    choice = json_data['choices'][0]
-                                    if 'message' in choice and 'tool_calls' in choice['message']:
-                                        tool_calls = choice['message']['tool_calls']
-                                        for tool_call in tool_calls:
-                                            if tool_call.get('type') == 'search_result':
-                                                search_results = tool_call.get('search_result', [])
-                                                for result in search_results:
-                                                    content = result.get('content', '')
-                                                    if content:
-                                                        accumulated_text += content + "\n"
-                                                        hass.bus.async_fire(
-                                                            f"{DOMAIN}_stream_token",
-                                                            {
-                                                                "event_id": event_id,
-                                                                "content": content,
-                                                                "full_content": accumulated_text
-                                                            }
-                                                        )
-                            except json.JSONDecodeError as e:
-                                LOGGER.error(f"解析流式响应失败: {str(e)}")
+                                if 'search_result' in json_data:
+                                    search_results = json_data.get('search_result', [])
+                                    for result in search_results:
+                                        if result_content := result.get('content'):
+                                            accumulated_text += result_content + "\n"
+                                            if link := result.get('link'):
+                                                accumulated_text += f"来源: {link}\n"
+                                            accumulated_text += "---\n"
+                                            hass.bus.async_fire(
+                                                f"{DOMAIN}_stream_token",
+                                                {
+                                                    "event_id": event_id,
+                                                    "content": result_content,
+                                                    "full_content": accumulated_text
+                                                }
+                                            )
+                            except json.JSONDecodeError:
                                 continue
                     
                     hass.bus.async_fire(f"{DOMAIN}_stream_end", {
@@ -130,7 +134,6 @@ async def async_setup_web_search(hass: HomeAssistant) -> None:
                     
                 except Exception as e:
                     error_msg = f"处理流式响应时出错: {str(e)}"
-                    LOGGER.error(error_msg)
                     hass.bus.async_fire(f"{DOMAIN}_stream_error", {
                         "event_id": event_id,
                         "error": error_msg
@@ -139,14 +142,24 @@ async def async_setup_web_search(hass: HomeAssistant) -> None:
             else:
                 result = response.json()
                 content = ""
-                if result.get("choices") and result["choices"][0].get("message", {}).get("tool_calls"):
-                    tool_calls = result["choices"][0]["message"]["tool_calls"]
-                    for tool_call in tool_calls:
-                        if tool_call.get("type") == "search_result":
-                            search_results = tool_call.get("search_result", [])
-                            for result in search_results:
-                                if result_content := result.get("content"):
-                                    content += result_content + "\n"
+                
+                if "error" in result:
+                    return {"success": False, "message": f"API返回错误: {result.get('error')}"}
+                
+                if "search_result" in result:
+                    search_results = result.get("search_result", [])
+                    for result_item in search_results:
+                        title = result_item.get("title", "")
+                        if title:
+                            content += f"标题: {title}\n"
+                        
+                        if result_content := result_item.get("content"):
+                            content += f"{result_content}\n"
+                            
+                        if link := result_item.get("link"):
+                            content += f"来源: {link}\n"
+                            
+                        content += "---\n"
                 
                 if content:
                     hass.bus.async_fire(f"{DOMAIN}_response", {
@@ -161,7 +174,6 @@ async def async_setup_web_search(hass: HomeAssistant) -> None:
 
         except Exception as e:
             error_msg = f"Web search failed: {str(e)}"
-            LOGGER.error(f"网络搜索错误: {str(e)}")
             return {"success": False, "message": error_msg}
 
     hass.services.async_register(

@@ -211,7 +211,7 @@ image_gen:
 
 web_search:
   name: 联网搜索
-  description: 使用智谱AI的web-search-pro工具进行联网搜索
+  description: 使用智谱AI的Web Search API进行联网搜索
   fields:
     query:
       name: 搜索内容
@@ -221,6 +221,33 @@ web_search:
       selector:
         text:
           multiline: true
+    search_engine:
+      name: 搜索引擎
+      description: '选择要使用的搜索引擎类型'
+      required: false
+      default: "search_std"
+      example: "search_std"
+      selector:
+        select:
+          options:
+            - label: 智谱基础版搜索(免费至2025.5.31)
+              value: search_std
+            - label: 智谱高阶版搜索
+              value: search_pro
+            - label: 搜狗搜索
+              value: search_pro_sogou
+            - label: 夸克搜索
+              value: search_pro_quark
+            - label: Jina.AI搜索
+              value: search_pro_jina
+    time_query:
+      name: 时间筛选
+      description: '添加时间筛选条件，如"2025年4月"、"最近一个月"、"今年上半年"等'
+      required: false
+      example: "2025年4月"
+      selector:
+        text:
+          multiline: false
     stream:
       name: 流式响应
       description: '是否使用流式响应（实时返回生成结果）'

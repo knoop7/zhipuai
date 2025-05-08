@@ -23,6 +23,7 @@ from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_ENTITY_ID
 from homeassistant.core import Context, HomeAssistant, ServiceResponse, State
 from homeassistant.helpers import area_registry, device_registry, entity_registry, intent
 from .const import DOMAIN, LOGGER
+import json
 
 _YAML_CACHE = {}
 
@@ -74,6 +75,7 @@ async def async_setup_intents(hass: HomeAssistant) -> None:
     intent.async_register(hass, CoverControlAllIntent(hass))
     intent.async_register(hass, MassPlayMediaAssist(hass))
     intent.async_register(hass, ZhipuAIImageGenIntent(hass))
+    intent.async_register(hass, HassLightSetAllIntent(hass))
 
 class CameraAnalyzeIntent(intent.IntentHandler):
     intent_type = INTENT_CAMERA_ANALYZE
@@ -138,10 +140,7 @@ class CameraAnalyzeIntent(intent.IntentHandler):
 
 class WebSearchIntent(intent.IntentHandler):
     intent_type = INTENT_WEB_SEARCH
-    slot_schema = {
-        vol.Required("query"): str,
-        vol.Optional("time_query"): str, 
-    }
+    slot_schema = {vol.Required("query"): str, vol.Optional("time_query"): str, vol.Optional("search_engine"): str}
 
     def __init__(self, hass: HomeAssistant):
         super().__init__()
@@ -160,69 +159,62 @@ class WebSearchIntent(intent.IntentHandler):
         await self._load_config()
         slots = self.async_validate_slots(intent_obj.slots)
         query = self.get_slot_value(slots.get("query"))
-        time_query = self.get_slot_value(slots.get("time_query"))  
+        time_query = self.get_slot_value(slots.get("time_query"))
+        search_engine = self.get_slot_value(slots.get("search_engine"))
         
         LOGGER.info("Web search info - 原始插槽:%s", slots)
         
-        if not query:
-            response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
-            return self._set_error_response(response, ERROR_NO_QUERY, "未提供搜索内容")
+        simplified_engine_mapping = {"jc": "基础版", "gj": "高阶版", "kk": "夸克", "sg": "搜狗"}
+        search_engine = simplified_engine_mapping.get(search_engine, search_engine)
         
-        if time_query:
-            now = datetime.now()  
-            if time_query in ["昨天", "昨日", "yesterday"]:
-                date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
-            elif time_query in ["明天", "明日", "tomorrow"]:
-                date = (now + timedelta(days=1)).strftime('%Y-%m-%d')
-            else:  
-                date = now.strftime('%Y-%m-%d')
-            query = f"{date} {query}"
+        search_engine_keywords = {
+            "基础版": ["基础版", "jc"], "高阶版": ["高阶版", "gj"],
+            "夸克": ["夸克搜索", "夸克", "kk"], "搜狗": ["搜狗搜索", "搜狗", "sg"]
+        }
         
-        return await self._handle_web_search(intent_obj.hass, intent_obj, query)
+        for engine, keywords in search_engine_keywords.items():
+            for keyword in keywords:
+                query, search_engine = (query.replace(keyword, "").strip(), engine) if query and not search_engine and keyword in query else (query, search_engine)
+        
+        response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+        return self._set_error_response(response, ERROR_NO_QUERY, "未提供搜索内容") if not query else await self._handle_web_search(
+            intent_obj.hass, intent_obj, query, 
+            f"{(now := datetime.now()) - timedelta(days=1) if time_query in ['昨天', '昨日', 'yesterday'] else now + timedelta(days=1) if time_query in ['明天', '明日', 'tomorrow'] else now}.strftime('%Y-%m-%d') {time_query}" if time_query else None, 
+            search_engine
+        )
 
-    async def _handle_web_search(
-        self, hass: HomeAssistant, intent_obj: intent.Intent, query: str
-    ) -> intent.IntentResponse:
+    async def _handle_web_search(self, hass: HomeAssistant, intent_obj: intent.Intent, query: str, time_query: str = None, search_engine: str = None) -> intent.IntentResponse:
         response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
         
         try:
-            LOGGER.info("Web search service call - Query: %s", query)
-            result = await hass.services.async_call(
-                DOMAIN,
-                "web_search",
-                service_data={
-                    "query": query,
-                    "stream": False
-                },
-                blocking=True,
-                return_response=True
-            )
+            service_data = {"query": query, "stream": False}
             
-            if result and isinstance(result, dict):
-                LOGGER.info("Web search result: %s", result)
-                if result.get("success", False):
-                    return self._set_speech_response(response, result.get("message", ""))
-                return self._set_error_response(
-                    response, ERROR_SERVICE_CALL, result.get("message", "搜索服务调用失败")
-                )
+            now = datetime.now()
+            service_data["time_query"] = time_query and (
+                (now - timedelta(days=1)).strftime('%Y-%m-%d') if time_query in ["昨天", "昨日", "yesterday"] else
+                (now + timedelta(days=1)).strftime('%Y-%m-%d') if time_query in ["明天", "明日", "tomorrow"] else
+                now.strftime('%Y-%m-%d')
+            ) or now.strftime('%Y-%m-%d')
             
-            return self._set_error_response(
-                response, ERROR_NO_RESPONSE, "未能获取到有效的搜索结果"
+            search_engine and service_data.update({"search_engine": search_engine})
+            
+            result = await hass.services.async_call(DOMAIN, "web_search", service_data, blocking=True, return_response=True)
+            
+            return (
+                self._set_speech_response(response, result.get("message", "")) if result and isinstance(result, dict) and result.get("success", False) else
+                self._set_error_response(response, ERROR_SERVICE_CALL, result.get("message", "搜索服务调用失败")) if result and isinstance(result, dict) else
+                self._set_error_response(response, ERROR_NO_RESPONSE, "未能获取到有效的搜索结果")
             )
             
         except Exception as e:
-            return self._set_error_response(
-                response, ERROR_SERVICE_CALL, f"搜索服务调用出错：{str(e)}"
-            )
+            return self._set_error_response(response, ERROR_SERVICE_CALL, f"搜索服务调用出错：{str(e)}")
 
     def _set_error_response(self, response, code, message) -> intent.IntentResponse:
         response.async_set_error(code=code, message=message)
         return response
 
     def _set_speech_response(self, response, message) -> intent.IntentResponse:
-        if len(message.encode('utf-8')) > 24 * 1024:
-            message = message[:24 * 1024].rsplit(' ', 1)[0] + "..."
-        response.async_set_speech(message)
+        response.async_set_speech(len(message.encode('utf-8')) > 24 * 1024 and message[:24 * 1024].rsplit(' ', 1)[0] + "..." or message)
         return response
 
     def get_slot_value(self, slot_data):
@@ -339,6 +331,12 @@ class HassNotifyIntent(intent.IntentHandler):
                 response.async_set_error("no_message", "请提供要发送的通知内容")
                 return response
 
+            notify_service = "persistent_notification"  
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if "notify_service" in entry.options:
+                    notify_service = entry.options.get("notify_service")
+                    break
+
             title_result = await self.hass.services.async_call(
                 "conversation", "process", 
                 {
@@ -377,24 +375,47 @@ class HassNotifyIntent(intent.IntentHandler):
                 ai_message = message
 
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            from homeassistant.components import persistent_notification
-            persistent_notification.async_create(
-                self.hass,
-                f"{ai_message}\n\n创建时间：{current_time}",
-                title=f"{title}"
-            )
+            
+            if notify_service != "persistent_notification":
+                await self.hass.services.async_call(
+                    "notify", 
+                    notify_service, 
+                    {
+                        "title": title,
+                        "message": f"{ai_message}"
+                    },
+                    blocking=True
+                )
+            else:
+                await self.hass.services.async_call(
+                    "persistent_notification", 
+                    "create", 
+                    {
+                        "title": title,
+                        "message": f"{ai_message}\n\n\n\n创建时间：{current_time}"
+                    },
+                    blocking=True
+                )
             
             response.async_set_speech(f"已创建通知: {message}")
             return response
 
         except Exception as err:
-            LOGGER.exception("发送通知失败")
+            LOGGER.exception("发送通知失败: %s", str(err))
             response.async_set_error("notification_error", f"发送通知失败: {str(err)}")
             return response
 
     def get_slot_value(self, slot_data):
-        return None if not slot_data else slot_data.get('value') if isinstance(slot_data, dict) else getattr(slot_data, 'value', None) if hasattr(slot_data, 'value') else str(slot_data)
+        if not slot_data:
+            return None
+        
+        if isinstance(slot_data, dict):
+            return slot_data.get('value')
+        
+        if hasattr(slot_data, 'value'):
+            return getattr(slot_data, 'value')
+            
+        return slot_data
 
 
 class ClimateBaseIntent(intent.IntentHandler):
@@ -713,212 +734,231 @@ class CoverControlAllIntent(intent.IntentHandler):
         return response
 
 class HassLightSetAllIntent(intent.IntentHandler):
-    intent_type = "HassLightSetAll"
-    slot_schema = {vol.Required("name"): str, vol.Optional("color"): str, vol.Optional("brightness"): str, vol.Optional("color_temp"): str}
+    intent_type = "HassLightSetAllIntent"
+    slot_schema = {vol.Required("name"): str, vol.Optional("domain"): str, vol.Optional("action"): str, vol.Optional("color"): str, vol.Optional("brightness"): str, vol.Optional("color_temp"): str}
 
     def __init__(self, hass: HomeAssistant):
         super().__init__()
         self.hass = hass
         self.color_map = {"红": "red", "绿": "green", "蓝": "blue", "黄": "yellow", "白": "white", "黑": "black", "紫": "purple", "橙": "orange", "粉": "pink", "棕": "brown", "灰": "gray"}
-        self.color_temp_map = {"暖": 2700, "中": 4000, "冷": 6500}
+        self.color_temp_map = {
+            "暖": 2600, "暖白": 2600, "暖黄": 2600, "暖光": 2600,
+            "中": 3800, "中性": 3800, "自然": 3800, "自然光": 3800,
+            "冷": 6500, "冷白": 6500, "白光": 6500, "日光": 6500
+        }
 
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
         slots = self.async_validate_slots(intent_obj.slots)
         name = self.get_slot_value(slots.get("name"))
+        domain = self.get_slot_value(slots.get("domain")) or "light"
+        action = self.get_slot_value(slots.get("action"))
         color = self.get_slot_value(slots.get("color"))
         brightness = self.get_slot_value(slots.get("brightness"))
         color_temp = self.get_slot_value(slots.get("color_temp"))
-        LOGGER.info("Hass light set intent info - 原始插槽: %s", {"name": name, "color": color, "brightness": brightness, "color_temp": color_temp})
-
-        entity_id = next((state.entity_id for state in self.hass.states.async_all("light") if name in state.name.lower()), None)
-        response = intent.IntentResponse(language=intent_obj.language)
+        LOGGER.info("Light intent info - 原始插槽: %s", {"name": name, "domain": domain, "action": action, "color": color, "brightness": brightness, "color_temp": color_temp})
+        entity_id = next((state.entity_id for state in self.hass.states.async_all(domain) 
+                         if name and name.lower() in state.name.lower()), None) 
+        response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
         if not entity_id:
-            response.async_set_error(intent.IntentResponseErrorCode.NO_VALID_TARGETS, f"未找到名为{name}的灯")
+            response.async_set_error("no_valid_targets", f"未找到名为{name}的{domain}实体")
             return response
+        if action and any(term in action.lower() for term in ["关", "关闭", "off", "turn off"]):
+            try:
+                await self.hass.services.async_call(domain, "turn_off", {"entity_id": entity_id}, blocking=True, context=intent_obj.context)
+                response.async_set_speech(f"已关闭{name}")
+                return response
+            except Exception as err:
+                response.async_set_error("failed_to_handle", f"关闭失败: {err}")
+                return response
+        if domain != "light":
+            try:
+                await self.hass.services.async_call(domain, "turn_on", {"entity_id": entity_id}, blocking=True, context=intent_obj.context)
+                response.async_set_speech(f"已打开{name}")
+                return response
+            except Exception as err:
+                response.async_set_error("failed_to_handle", f"打开失败: {err}")
+                return response
+        service_data = {"entity_id": entity_id}
+        message_parts = []
+        color and next((service_data.update({"color_name": en_color}) or message_parts.append(f"颜色设为{color}") 
+                        for cn_color, en_color in self.color_map.items() if cn_color in color), None)
+        try:
+            if brightness is not None:
+                value = int(brightness.replace("%", "").strip()) if isinstance(brightness, str) and "%" in brightness else \
+                      int(re.search(r"(\d+)", brightness).group(1)) if isinstance(brightness, str) and re.search(r"(\d+)", brightness) else \
+                      int(brightness) if isinstance(brightness, (int, float)) else None
+                
+                value is not None and service_data.update({"brightness": int(max(0, min(100, value)) * 255 / 100)}) and \
+                message_parts.append(f"亮度设为{value}%")
+        except (ValueError, AttributeError, TypeError):
+            pass
+        
+        color_temp and next((service_data.update({"color_temp_kelvin": value}) or message_parts.append(f"色温设为{color_temp}")
+                            for keyword, value in self.color_temp_map.items() if keyword in color_temp), 
+                          self._try_parse_color_temp(color_temp, service_data, message_parts))
+        
+        not message_parts and message_parts.append("已打开")
 
         try:
-            service_data = {"entity_id": entity_id}
-            message_parts = []
-            if color and (color_value := self._process_color(color)):
-                service_data["color_name"] = color_value
-                message_parts.append(f"颜色设为{color}")
-            if brightness and (brightness_value := self._process_brightness(brightness)) is not None:
-                service_data["brightness"] = brightness_value
-                message_parts.append(f"亮度设为{brightness_value//255*100}%")
-            if color_temp and (temp_value := self._process_color_temp(color_temp)):
-                service_data["color_temp"] = temp_value
-                message_parts.append(f"色温设为{color_temp}")
-            if not message_parts: message_parts.append("已打开")
-
             await self.hass.services.async_call("light", "turn_on", service_data, blocking=True, context=intent_obj.context)
-            response.response_type = intent.IntentResponseType.ACTION_DONE
             response.async_set_speech(f"{name}的灯" + "，".join(message_parts))
+            return response
         except Exception as err:
-            response.async_set_error(intent.IntentResponseErrorCode.FAILED_TO_HANDLE, f"设置失败: {err}")
-        return response
-
-    def _process_color(self, color: str) -> Optional[str]:
-        return None if not color else next((en_color for cn_color, en_color in self.color_map.items() if cn_color in color), color)
-
-    def _process_brightness(self, brightness: str) -> Optional[int]:
-        if not brightness: return None
+            response.async_set_error("failed_to_handle", f"设置失败: {err}")
+            return response
+            
+    def _try_parse_color_temp(self, color_temp, service_data, message_parts):
         try:
-            value = int(brightness.replace("%", "")) if "%" in brightness else int(re.search(r"(\d+)", brightness).group(1))
-            return int(max(0, min(100, value)) * 255 / 100)
-        except (ValueError, AttributeError): return None
-
-    def _process_color_temp(self, temp: str) -> Optional[int]:
-        if not temp: return None
-        return next((value for keyword, value in self.color_temp_map.items() if keyword in temp), 
-               max(2000, min(6500, int(re.search(r"(\d+)", temp).group(1)))) if re.search(r"(\d+)", temp) else None)
+            match = re.search(r"(\d+)", color_temp)
+            if match:
+                value = max(2000, min(6500, int(match.group(1))))
+                service_data["color_temp_kelvin"] = value
+                message_parts.append(f"色温设为{value}K")
+        except (ValueError, AttributeError):
+            pass
 
     def get_slot_value(self, slot_data):
-        return None if not slot_data else slot_data['color'].get('value', '') if isinstance(slot_data, dict) and isinstance(slot_data.get('color'), dict) else slot_data.get("value", "") if isinstance(slot_data, dict) else slot_data
-
-
+        return None if not slot_data else slot_data.get('value') if isinstance(slot_data, dict) else getattr(slot_data, 'value', None) if hasattr(slot_data, 'value') else str(slot_data)
 
 class MassPlayMediaAssist(intent.IntentHandler):
     intent_type = "MassPlayMediaAssist"
     slot_schema = {vol.Required("query"): str, vol.Optional("area"): str, vol.Optional("name"): str}
+    
     def __init__(self, hass: HomeAssistant): 
         super().__init__()
         self.hass = hass
         self._area_reg = area_registry.async_get(hass)
         self._entity_reg = entity_registry.async_get(hass)
 
-    def _get_available_players(self):
-        return [
-            state.entity_id for state in self.hass.states.async_all()
-            if state.domain == "media_player" 
-            and state.attributes.get("integration") == "music_assistant"
-        ]
-
-    def _get_available_areas(self):
-        return [
-            area.id for area in self._area_reg.areas.values()
-            if any(
-                entity for entity in self.hass.states.async_all()
-                if entity.domain == "media_player" 
-                and entity.attributes.get("integration") == "music_assistant"
-                and entity.area_id == area.id
-            )
-        ]
-
-    def _validate_target(self, area: str, name: str) -> tuple[dict, str]:
-        target = {}
-        error_msg = None
-        available_players = self._get_available_players()
-        available_areas = self._get_available_areas()
-
-        if area:
-            area_id = next((a_id for a_id in available_areas if self._area_reg.async_get_area(a_id).name.lower() == area.lower()), None)
-            if not area_id:
-                error_msg = f"未找到区域: {area}，可用区域: {', '.join(self._area_reg.async_get_area(a).name for a in available_areas)}"
-            else:
-                target["area_id"] = [area_id]
-
-        if name and not error_msg:
-            player_id = next((p_id for p_id in available_players if self.hass.states.get(p_id).attributes.get("friendly_name", "").lower() == name.lower()), None)
-            if not player_id:
-                error_msg = f"未找到播放器: {name}，可用播放器: {', '.join(self.hass.states.get(p_id).attributes.get('friendly_name', '') for p_id in available_players)}"
-            else:
-                target["entity_id"] = [player_id]
-
-        return target, error_msg
-
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
-        LOGGER.info("开始处理音乐播放意图")
-        slots = self.async_validate_slots(intent_obj.slots)
-        query = self.get_slot_value(slots.get("query", ""))
-        area = self.get_slot_value(slots.get("area"))
-        name = self.get_slot_value(slots.get("name"))
-        LOGGER.info(f"处理后的slots值 - query: {query}, area: {area}, name: {name}")
         response = intent.IntentResponse(intent=intent_obj, language="zh-cn")
+        
         try:
-            if not query: return response.async_set_error("no_query", "请提供要播放的音乐内容")
-            target, error_msg = self._validate_target(area, name)
-            if error_msg: return response.async_set_error("invalid_target", error_msg)
-            return await self._process_query(query, target, response)
+            slots = self.async_validate_slots(intent_obj.slots)
+            query = self._get_slot_value(slots.get("query", ""))
+            area = self._get_slot_value(slots.get("area"))
+            name = self._get_slot_value(slots.get("name"))
+            
+            LOGGER.info("MassPlayMedia intent info - 原始插槽: %s", {"query": query, "area": area, "name": name})
+            
+            service_request = hasattr(intent_obj, 'service_request') and intent_obj.service_request or await self._build_service_request(query, area, name)
+            return await self._handle_service_call(service_request, response) if "error" not in service_request else response.async_set_error("invalid_request", service_request["error"])
+            
         except Exception as err: 
-            LOGGER.exception("处理音乐播放请求失败")
-            return response.async_set_error("play_error", f"播放失败: {str(err)}")
+            response.async_set_error("play_error", f"播放失败: {str(err)}")
+            return response
 
-    async def _process_query(self, query: str, target: dict, response: intent.IntentResponse) -> intent.IntentResponse:
-        LOGGER.info(f"开始处理音乐查询: {query}")
+    async def _build_service_request(self, query: str, area: str = None, name: str = None) -> dict:
+        clean_query = self._clean_query(query)
+        shuffle = "随机" in query.lower() or "shuffle" in query.lower()
         
-        search_data = {
-            "limit": 5,
-            "library_only": False,
-            "name": query,
-            "media_type": ["track"]
-        }
+        artist_song_match = re.search(r'([^\s]+)(?:\s+)([^\s]+)', clean_query)
+        artist_of_song_match = re.search(r'([^的]+)的(.+)', clean_query)
+        artist = artist_song_match and artist_song_match.group(1).strip() or artist_of_song_match and artist_of_song_match.group(1).strip() or None
+        album = artist_song_match and artist_song_match.group(2).strip() or artist_of_song_match and artist_of_song_match.group(2).strip() or None
+        
+        target = name and {"entity_id": target_entity} if (target_entity := self._find_player_by_name(name)) else area and {"area_id": area_id} if (area_id := self._find_area_by_name(area)) else {}
+        target = target or next(([{"entity_id": default_players[0]}] for default_players in [[state.entity_id for state in self.hass.states.async_all() if state.domain == "media_player" and state.attributes.get("integration") == "media_player"]] if default_players), {"error": "未找到可用的音乐播放器"})
+        return "error" in target and target or (search_result := await self._search_media(clean_query, artist, album)) and {
+            "action": "media_player.play_media",
+            "target": target,
+            "data": {
+                "media_id": search_result.get("media_id", ""),
+                "media_type": search_result.get("media_type", "track"),
+                "enqueue": "play",
+                **({} if not search_result.get("artist") else {"artist": search_result["artist"]}),
+                **({} if not search_result.get("album") else {"album": search_result["album"]})
+            },
+            **({} if not shuffle else {"shuffle": True})
+        } or {"error": f"未找到音乐: {clean_query}"}
+
+    async def _search_media(self, query: str, artist: str = None, album: str = None) -> dict:
+        if not query and not artist and not album: return None
+        
+        search_data = {"limit": 5, "library_only": False, "media_type": ["track", "album", "artist", "playlist", "radio"]}
+        search_data.update(query and not artist and not album and {"name": query} or {})
+        search_data.update(artist and {"artist": artist} or {})
+        search_data.update(album and {"album": album, "name": album} or {})
         
         try:
-            search_data["library_only"] = True
-            LOGGER.info(f"搜索本地音乐库，参数: {search_data}")
-            local_result = await self.hass.services.async_call(
-                "music_assistant", 
-                "search", 
-                search_data,
-                blocking=True,
-                return_response=True
-            )
-            
-            items = local_result.get("items", []) if local_result and isinstance(local_result, dict) else []
-            
-            if not items:
-                search_data["library_only"] = False
-                LOGGER.info(f"本地未找到，尝试在线搜索，参数: {search_data}")
-                online_result = await self.hass.services.async_call(
-                    "music_assistant", 
-                    "search", 
-                    search_data,
-                    blocking=True,
-                    return_response=True
-                )
-                items = online_result.get("items", []) if online_result and isinstance(online_result, dict) else []
-            
-            if not items:
-                return response.async_set_error("no_results", f"未找到音乐: {query}")
-            
-            first_item = items[0]
-            play_data = {
-                "media_id": first_item.get("item_id"),
-                "media_type": first_item.get("type", "track")
+            result = await self.hass.services.async_call("media_player", "search", search_data, blocking=True, return_response=True)
+            items = result and isinstance(result, dict) and (result.get("items") or result.get("artists") or result.get("tracks") or result.get("albums") or [])
+            return not items and self._create_default_media_info(query, artist, album) or {
+                "media_id": (uri := items[0].get("uri", items[0].get("item_id", ""))) and "://" in uri and uri.split("://")[-1] or uri,
+                "media_type": items[0].get("media_type", items[0].get("type", "track")),
+                "name": items[0].get("name", ""),
+                **({} if not (item_artist := items[0].get("artist")) and not artist else {"artist": item_artist or artist}),
+                **({} if not (item_album := items[0].get("album")) and not album else {"album": item_album or album})
             }
+        except Exception as err:
+            return self._create_default_media_info(query, artist, album)
             
-            LOGGER.info(f"找到音乐，准备播放: {play_data}")
-            await self.hass.services.async_call(
-                "music_assistant", 
-                "play_media", 
-                play_data, 
-                target=target if target else None
-            )
+    def _create_default_media_info(self, query: str, artist: str = None, album: str = None) -> dict:
+        return {
+            "media_id": "spotify",
+            "media_type": "track",
+            "name": query or album or "",
+            **({} if not artist else {"artist": artist}),
+            **({} if not album else {"album": album})
+        }
+
+    def _clean_query(self, query: str) -> str:
+        return not query and "" or re.sub(r'\b(随机|shuffle|播放|play|音乐|歌曲|歌|music|song)\b', '', query, flags=re.IGNORECASE).strip()
+        
+    def _find_player_by_name(self, name: str) -> str:
+        return not name and None or next((player_id for player_id in [state.entity_id for state in self.hass.states.async_all() if state.domain == "media_player"] 
+            if self.hass.states.get(player_id) and name.lower() in self.hass.states.get(player_id).attributes.get("friendly_name", "").lower()),
+            next((entity.entity_id for entity in self._entity_reg.entities.values() 
+                if entity.domain == "media_player" and entity.entity_id in [state.entity_id for state in self.hass.states.async_all() if state.domain == "media_player"] 
+                and name.lower() in entity.name.lower()), 
+                next((player_id for player_id in [state.entity_id for state in self.hass.states.async_all() if state.domain == "media_player"] 
+                    if name.lower() in player_id.lower()), None)))
+        
+    def _find_area_by_name(self, area_name: str) -> str:
+        return not area_name and None or next((area_id for area_id, area in self._area_reg.areas.items() 
+            if area_name.lower() in area.name.lower() and next((True for state in self.hass.states.async_all() 
+                if state.domain == "media_player" and state.attributes.get("integration") == "media_player" 
+                and (entity := self._entity_reg.async_get_entity_id(state.domain, state.entity_id.split(".")[0], state.object_id)) 
+                and entity and entity.area_id == area_id), False)), None)
+        
+    def _get_slot_value(self, slot_data):
+        return not slot_data and None or isinstance(slot_data, dict) and slot_data.get('value') or hasattr(slot_data, 'value') and getattr(slot_data, 'value') or str(slot_data)
+
+    def _build_response_text(self, service_request: dict) -> str:
+        data = service_request.get("data", {})
+        target = service_request.get("target", {})
+        
+        target_desc = ""
+        entity_id = "entity_id" in target and target["entity_id"]
+        entity_id = entity_id and isinstance(entity_id, list) and entity_id and entity_id[0] or entity_id
+        area_id = "area_id" in target and target["area_id"]
+        area_id = area_id and isinstance(area_id, list) and area_id and area_id[0] or area_id
+        
+        target_desc = entity_id and self.hass.states.get(entity_id) and f" 在{self.hass.states.get(entity_id).attributes.get('friendly_name', entity_id)}上" or area_id and self._area_reg.async_get_area(area_id) and f" 在{self._area_reg.async_get_area(area_id).name}区域" or ""
+        
+        return f"正在{service_request.get('shuffle') and '随机' or ''}播放{data.get('artist') and f' {data.get('artist')}的' or ''}{data.get('album') and f' {data.get('album')}' or ''}{data.get('media_type') and data.get('media_type') != 'track' and f' ({data.get('media_type')})' or ''}{target_desc}"
+        
+    async def _handle_service_call(self, service_request: dict, response: intent.IntentResponse) -> intent.IntentResponse:
+        try:
+            action = service_request.get("action", "media_player.play_media")
+            domain, service = action.split(".", 1) if "." in action else ("media_player", "play_media")
+            data = service_request.get("data", {})
+            target = service_request.get("target", {})
             
-            target_desc = []
-            if target.get("area_id"):
-                areas = [self._area_reg.async_get_area(a_id).name for a_id in target["area_id"]]
-                target_desc.extend([f"在{area}" for area in areas])
-            if target.get("entity_id"):
-                players = [self.hass.states.get(e_id).attributes.get("friendly_name", "") for e_id in target["entity_id"]]
-                target_desc.extend([f"用{player}" for player in players])
+            target["entity_id"] = "entity_id" in target and isinstance(target["entity_id"], str) and [target["entity_id"]] or target.get("entity_id")
+            target["area_id"] = "area_id" in target and isinstance(target["area_id"], str) and [target["area_id"]] or target.get("area_id")
             
-            location = f"{' '.join(target_desc)}" if target_desc else ""
-            song_info = f"{first_item.get('name', '')}"
-            if first_item.get('artist'):
-                song_info += f" - {first_item['artist']}"
+            await self.hass.services.async_call(domain, service, data, target=target)
+            service_request.get("shuffle", False) and target and await self.hass.services.async_call("media_player", "shuffle_set", {"shuffle": True}, target=target)
             
-            response_text = f"正在{location}播放{song_info}"
-            LOGGER.info(f"返回响应: {response_text}")
+            response_text = self._build_response_text(service_request)
+            response.response_type = intent.IntentResponseType.ACTION_DONE
             response.async_set_speech(response_text)
             return response
             
         except Exception as err:
-            LOGGER.exception("处理音乐播放请求失败")
-            return response.async_set_error("play_error", f"播放失败: {str(err)}")
-
-    def get_slot_value(self, slot_data):
-        return None if not slot_data else slot_data.get('value') if isinstance(slot_data, dict) else getattr(slot_data, 'value', None) if hasattr(slot_data, 'value') else str(slot_data)
+            response.async_set_error("service_call_error", f"服务调用失败: {str(err)}")
+            return response
 
 class ZhipuAIImageGenIntent(intent.IntentHandler):    
     intent_type = INTENT_IMAGE_GEN
@@ -947,9 +987,20 @@ class ZhipuAIImageGenIntent(intent.IntentHandler):
     def get_slot_value(self, slot_data): return None if not slot_data else slot_data.get("value")
 
 def extract_intent_info(user_input: str, hass: HomeAssistant) -> Optional[Dict[str, Any]]:
-    entity_match = re.search(r'([\w_]+\.[\w_]+)', user_input)
-    entity_id = entity_match.group(1) if entity_match else None
-    domain = entity_id.split('.')[0] if entity_id else None
+    if re.match(r'^\d+\.?\d*$', user_input.strip()) or re.match(r'^[\w]+\.\d+$', user_input.strip()):
+        return None
+        
+    entity_match = re.search(r'([a-zA-Z][\w_]+\.[\w_]+)', user_input)
+    
+    if not entity_match:
+        return None
+        
+    entity_id = entity_match.group(1)
+    domain = entity_id.split('.')[0]
+    
+    all_domains = set(domain for entity_id in hass.states.async_entity_ids() for domain in [entity_id.split(".")[0]])
+    if domain not in all_domains:
+        return None
     
     intent_mappings = {
         r'切换|toggle': 'toggle',

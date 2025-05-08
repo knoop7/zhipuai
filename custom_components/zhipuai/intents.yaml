@@ -148,7 +148,8 @@ intents:
           - "(联网|上网|互联网)(搜索|查找|查询){time_query}的{query}"
           - "[帮我|请](联网|上网|互联网)(搜索|查找|查询){time_query}{query}"
           - "[帮我|请](联网|上网|互联网)(搜索|查找|查询){time_query}的{query}"
-          - "(百度|谷歌|必应)(搜索|查找|查询){time_query}{query}"
+          - "(百度|谷歌|必应|夸克|搜狗|gj|jc|sg|kq)(搜索|查找|查询){time_query}{query}"
+          - "(夸克|高阶版|基础版|搜索|搜狗)(搜索|查找|查询){time_query}{query}"
         slots:
           query:
             type: text
@@ -164,6 +165,17 @@ intents:
               - "明日"
               - "当前"
               - "现在"
+          search_engine:
+            type: list
+            values:
+              - "基础版"
+              - "高阶版"
+              - "夸克"
+              - "搜狗"
+              - "jc"
+              - "gj"
+              - "kk"
+              - "sg"
 
   CameraAnalyzeIntent:
     data:
@@ -218,15 +230,13 @@ intents:
       timer_name:
         type: text
     templates:
-      - "[设置|创建|添加|开始|启动]{duration}[提醒|记录|通知]{timer_name}"
-      - "[设置|创建|添加|开始|启动][提醒|记录|通知]{duration}{timer_name}"
-      - "{duration}[提醒|记录|通知]{timer_name}"
-      - "[设置|创建|添加|开始|启动][提醒|记录|通知]{timer_name}{duration}"
       - "[设置|创建|添加|开始|启动]一个{duration}的[计时器|定时器]{timer_name}"
       - "[设置|创建|添加|开始|启动]{duration}的[计时器|定时器]{timer_name}"
-      - "在{duration}[后|以后|之后][设置|创建|添加|开始|启动][计时器|定时器]{timer_name}"
-      - "{duration}[后|以后|之后][设置|创建|添加|开始|启动][计时器|定时器]{timer_name}"
-      - "[取消|停止|关闭|结束|删除][计时器|定时器|提醒|记录|通知]{timer_name}"
+      - "在{duration}[后|以后|之后][提醒我|叫我|通知我]{timer_name}"
+      - "{duration}[后|以后|之后][提醒我|叫我|通知我]{timer_name}"
+      - "[设置|创建|添加|开始|启动]{duration}[倒计时|计时]{timer_name}"
+      - "[取消|停止|关闭|结束|删除][计时器|定时器]{timer_name}"
+      - "{duration}[后|以后|之后][叫我|提示我]{timer_name}"
 
   HassNotifyIntent:
     action:
@@ -237,13 +247,15 @@ intents:
       message:
         type: text
     templates:
-      - "[记住|记录|记一下|提醒我|提醒|提醒一下]{message}"
-      - "帮我[记住|记录|记一下]{message}"
+      - "[记住|记录|记一下|备忘]{message}"
+      - "帮我[记住|记录|记一下|备忘]{message}"
+      - "[创建|发送|做个]通知{message}"
+      - "[记住|记录|记一下|备忘][这个|这件事]{message}"
+      - "帮我[记住|记录|记一下|备忘][这个|这件事]{message}"
+      - "[帮我|请|麻烦|给我][记住|记录|记一下|备忘][这个|这件事]{message}"
+      - "[帮我|请|麻烦|给我][创建|发送]一个通知{message}"
+      - "[提醒我|提醒|提醒一下]{message}"
       - "帮我[提醒|提醒一下]{message}"
-      - "[记住|记录|记一下|提醒我|提醒|提醒一下][这个|这件事]{message}"
-      - "帮我[记住|记录|记一下][这个|这件事]{message}"
-      - "帮我[提醒|提醒一下][这个|这件事]{message}"
-      - "[帮我|请|麻烦|给我][记住|记录|记一下][这个|这件事]{message}"
       - "帮我[提醒|提醒一下][这个|这件事]{message}"
 
   ClimateSetTemperature:

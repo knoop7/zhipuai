@@ -1,68 +1,172 @@
+from __future__ import annotations
 import aiohttp
-from aiohttp import TCPConnector
+import json
+import asyncio
+import time
+from typing import AsyncGenerator, Dict, Any, Protocol, Callable
 from homeassistant.exceptions import HomeAssistantError
-from .const import LOGGER, ZHIPUAI_URL, CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT
+from homeassistant.core import HomeAssistant
+from .const import (
+    LOGGER, ZHIPUAI_URL, CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT,
+    ERROR_INVALID_AUTH, ERROR_TOO_MANY_REQUESTS, ERROR_SERVER_ERROR, ERROR_TIMEOUT, ERROR_UNKNOWN
+)
 
 _SESSION = None
 
-async def get_session():
+async def get_session() -> aiohttp.ClientSession:
     global _SESSION
     if _SESSION is None:
-        connector = TCPConnector(ssl=False)
+        connector = aiohttp.TCPConnector(
+            limit=10,             
+            limit_per_host=5,      
+            keepalive_timeout=20.0
+        )
         _SESSION = aiohttp.ClientSession(connector=connector)
     return _SESSION
 
-async def send_ai_request(api_key: str, payload: dict, options: dict = None) -> dict:
-    try:
-        session = await get_session()
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        timeout = aiohttp.ClientTimeout(total=options.get(CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT))
-        async with session.post(ZHIPUAI_URL, json=payload, headers=headers, timeout=timeout) as response:
-            if response.status == 401:
-                err_str = "API密钥无效或已过期"
-            elif response.status == 429:
-                err_str = "请求过于频繁，请稍后再试"
-            elif response.status in [500, 502, 503]:
-                err_str = "AI服务器暂时不可用，请稍后再试"
-            elif response.status == 400:
-                result = await response.json()
-                err_str = f"请求参数错误: {result.get('error', {}).get('message', '未知错误')}"
-            elif response.status != 200:
-                err_str = f"AI服务返回错误 {response.status}"
-            
-            if response.status != 200:
-                LOGGER.error("AI请求错误: %s", err_str)
-                raise HomeAssistantError(err_str)
-                
-            result = await response.json()
-            if "error" in result:
-                err_msg = result["error"].get("message", "未知错误")
-                LOGGER.error("AI返回错误: %s", err_msg)
-                if "token" in err_msg.lower():
-                    raise HomeAssistantError("生成的文本太长，请尝试缩短请求或减小max_tokens值")
-                elif "rate" in err_msg.lower():
-                    raise HomeAssistantError("请求过于频繁，请稍后再试")
-                else:
-                    raise HomeAssistantError(f"AI服务返回错误: {err_msg}")
-            return result
+class AIRequestHandler(Protocol):
+    async def send_request(self, api_key: str, payload: Dict[str, Any], options: Dict[str, Any]) -> Any: pass
+    async def handle_tool_call(self, api_key: str, tool_call: Dict[str, Any], options: Dict[str, Any]) -> Dict[str, Any]: pass
 
-    except Exception as err:
-        err_str = str(err).lower() if str(err) else "未知错误"
-        LOGGER.error("AI通信错误: %s", err_str)
+def _handle_error_status(status: int, error_text: str) -> None:
+    if status == 401:
+        raise HomeAssistantError(ERROR_INVALID_AUTH)
+    elif status == 429:
+        raise HomeAssistantError(ERROR_TOO_MANY_REQUESTS)
+    elif status in [500, 502, 503, 504]:
+        raise HomeAssistantError(ERROR_SERVER_ERROR)
+    else:
+        raise HomeAssistantError(f"{ERROR_UNKNOWN}: {error_text}")
+
+class StreamingRequestHandler:
+    async def send_request(self, api_key: str, payload: Dict[str, Any], options: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
+        payload["stream"] = True
+        if "request_id" not in payload:
+            payload["request_id"] = f"req_{int(time.time() * 1000)}"
         
-        if not err_str or err_str.isspace():
-            error_msg = "与AI服务通信失败，请检查网络连接和API密钥配置。"
-        else:
-            error_msg = "很抱歉，我现在无法正确处理您的请求。" + (
-                "网络连接失败，请检查网络设置。" if any(x in err_str for x in ["通信", "communication", "connect", "socket"]) else
-                "请求超时，尝试减小max_tokens值或缩短请求。" if any(x in err_str for x in ["timeout", "connection", "network"]) else
-                "API密钥无效或已过期，请更新配置。" if any(x in err_str for x in ["api key", "token", "unauthorized", "authentication"]) else
-                "请求参数错误，请检查配置。" if "参数" in err_str or "parameter" in err_str else
-                f"发生错误: {err_str}"
-            )
+
+        for attempt in range(3):
+            try:
+                session = await get_session()
+                headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                timeout = aiohttp.ClientTimeout(total=options.get(CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT))
+                api_url = options.get("base_url", ZHIPUAI_URL)
+                
+                async with session.post(api_url, json=payload, headers=headers, timeout=timeout) as response:
+                    if response.status != 200:
+                        _handle_error_status(response.status, await response.text())
+
+                    buffer = ""
+                    async for chunk in response.content:
+                        if not chunk: 
+                            continue
+                            
+                        chunk_text = chunk.decode('utf-8')
+                        buffer += chunk_text
+                        
+                        lines = buffer.split("\n")
+                        if len(lines) > 1:
+                            buffer = lines.pop()
+                            
+                            for line in lines:
+                                line = line.strip()
+                                if not line or line == "data: [DONE]":
+                                    continue
+                                    
+                                if line.startswith("data: "):
+                                    try:
+                                        yield json.loads(line[6:])
+                                    except:
+                                        pass
+                    
+                    if buffer.startswith("data: ") and "data: [DONE]" not in buffer:
+                        try:
+                            yield json.loads(buffer[6:])
+                        except:
+                            pass
+                    
+                    return
+                    
+            except (aiohttp.ClientConnectorError, aiohttp.ServerTimeoutError, aiohttp.ClientOSError, asyncio.TimeoutError):
+                if attempt < 2: 
+                    await asyncio.sleep(1.0)
+            except Exception as e:
+                raise HomeAssistantError(f"{ERROR_UNKNOWN}: {str(e)}")
         
-        LOGGER.error("与 AI 通信时出错: %s", err_str)
-        raise HomeAssistantError(error_msg)
+        raise HomeAssistantError(f"{ERROR_UNKNOWN}")
+
+    async def handle_tool_call(self, api_key: str, tool_call: Dict[str, Any], options: Dict[str, Any]) -> Dict[str, Any]:
+        for attempt in range(3):
+            try:
+                session = await get_session()
+                headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                timeout = aiohttp.ClientTimeout(total=options.get(CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT))
+                api_url = options.get("base_url", ZHIPUAI_URL)
+                tool_url = f"{api_url}/tool_calls"
+                
+                payload = {
+                    "tool_call_id": tool_call["id"],
+                    "name": tool_call["function"]["name"],
+                    "arguments": tool_call["function"]["arguments"],
+                    "stream": False
+                }
+                
+                async with session.post(tool_url, json=payload, headers=headers, timeout=timeout) as response:
+                    if response.status != 200:
+                        _handle_error_status(response.status, await response.text())
+                    return await response.json()
+                    
+            except (aiohttp.ClientConnectorError, aiohttp.ServerTimeoutError, aiohttp.ClientOSError, asyncio.TimeoutError):
+                if attempt < 2: 
+                    await asyncio.sleep(1.0)
+            except Exception as e:
+                raise HomeAssistantError(f"{ERROR_UNKNOWN}: {str(e)}")
+                
+        raise HomeAssistantError(f"{ERROR_UNKNOWN}")
+
+class DirectRequestHandler:
+    async def send_request(self, api_key: str, payload: Dict[str, Any], options: Dict[str, Any]) -> Dict[str, Any]:
+        for attempt in range(3):
+            try:
+                session = await get_session()
+                headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                timeout = aiohttp.ClientTimeout(total=options.get(CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT))
+                payload_copy = dict(payload)
+                payload_copy["stream"] = False
+                
+                api_url = options.get("base_url", ZHIPUAI_URL)
+                async with session.post(api_url, json=payload_copy, headers=headers, timeout=timeout) as response:
+                    response_json = await response.json()
+                    if response.status != 200:
+                        _handle_error_status(response.status, str(response_json))
+                    return response_json
+                    
+            except (aiohttp.ClientConnectorError, aiohttp.ServerTimeoutError, aiohttp.ClientOSError, asyncio.TimeoutError):
+                if attempt < 2: 
+                    await asyncio.sleep(1.0)
+            except Exception as e:
+                raise HomeAssistantError(f"{ERROR_UNKNOWN}: {str(e)}")
+                
+        raise HomeAssistantError(f"{ERROR_UNKNOWN}")
+
+    async def handle_tool_call(self, api_key: str, tool_call: Dict[str, Any], options: Dict[str, Any]) -> Dict[str, Any]:
+        return await StreamingRequestHandler().handle_tool_call(api_key, tool_call, options)
+
+def create_request_handler(streaming: bool = True) -> AIRequestHandler:
+    return StreamingRequestHandler() if streaming else DirectRequestHandler()
+
+async def send_ai_request(api_key: str, payload: Dict[str, Any], options: Dict[str, Any] = None, timeout=30) -> AsyncGenerator[Dict[str, Any], None]:
+    options = options or {}
+    handler = create_request_handler(True)
+    async for chunk in handler.send_request(api_key, payload, options):
+        yield chunk
+
+async def send_api_request(api_key: str, payload: Dict[str, Any], options: Dict[str, Any] = None, timeout=30) -> Dict[str, Any]:
+    options = options or {}
+    handler = create_request_handler(False)
+    return await handler.send_request(api_key, payload, options)
+
+async def handle_tool_call(api_key: str, tool_call: Dict[str, Any], options: Dict[str, Any] = None) -> Dict[str, Any]:
+    options = options or {}
+    handler = create_request_handler(False)
+    return await handler.handle_tool_call(api_key, tool_call, options)

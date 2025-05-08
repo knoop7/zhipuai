@@ -38,9 +38,7 @@ from .const import (
     RECOMMENDED_TOP_P,
     RECOMMENDED_MAX_HISTORY_MESSAGES,
     CONF_MAX_TOOL_ITERATIONS,
-    CONF_COOLDOWN_PERIOD,
     DEFAULT_MAX_TOOL_ITERATIONS,
-    DEFAULT_COOLDOWN_PERIOD,
     CONF_WEB_SEARCH,
     DEFAULT_WEB_SEARCH,
     CONF_HISTORY_ANALYSIS,
@@ -61,27 +59,35 @@ from .const import (
     DEFAULT_STOP_SEQUENCES,
     CONF_TOOL_CHOICE,
     DEFAULT_TOOL_CHOICE,
+    CONF_FILTER_MARKDOWN,
+    DEFAULT_FILTER_MARKDOWN,
+    CONF_NOTIFY_SERVICE,
+    DEFAULT_NOTIFY_SERVICE,
 )
+
 
 ZHIPUAI_MODELS = [
     "GLM-4-Plus",
-    "glm-zero-preview",
-    "web-search-pro",
     "GLM-4-0520",
-    "GLM-4V",
     "GLM-4-Long",
+    "glm-zero-preview",
+    "GLM-Z1-Air",
+    "GLM-Z1-AirX",
+    "GLM-Z1-flash",
+    "GLM-Z1-flashX-250414",
     "GLM-4-Flash",
-    "GLM-4-FlashX",
-    "GLM-4-9B",
-    "GLM-4-Air", 
+    "glm-4-flash-250414",
+    "glm-4-flashx-250414",
+    "CharGLM-4",
+    "GLM-4-Air",
     "GLM-4-AirX",
+    "GLM-4-Air-250414",
     "GLM-4-AllTools",
-    "glm-4-Air-0111",
-    "GLM-4",
-    "GLM-4-CodeGeex-4",
+    "GLM-4-Assistant",
+    "GLM-4-CodeGeex-4"
 ]
 
-RECOMMENDED_CHAT_MODEL = "GLM-4-Flash"
+RECOMMENDED_CHAT_MODEL = "glm-4-flash-250414"
 
 RECOMMENDED_OPTIONS = {
     CONF_RECOMMENDED: True,
@@ -92,7 +98,6 @@ RECOMMENDED_OPTIONS = {
     CONF_MAX_HISTORY_MESSAGES: RECOMMENDED_MAX_HISTORY_MESSAGES,
     CONF_CHAT_MODEL: RECOMMENDED_CHAT_MODEL,
     CONF_MAX_TOOL_ITERATIONS: DEFAULT_MAX_TOOL_ITERATIONS,
-    CONF_COOLDOWN_PERIOD: DEFAULT_COOLDOWN_PERIOD,
 }
 
 class ZhipuAIConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -246,22 +251,10 @@ class ZhipuAIOptionsFlow(OptionsFlow):
         errors = {}
         if user_input is not None:
             try:
-                cooldown_period = user_input.get(CONF_COOLDOWN_PERIOD)
-                if cooldown_period is not None:
-                    cooldown_period = float(cooldown_period)
-                    if cooldown_period < 0:
-                        errors[CONF_COOLDOWN_PERIOD] = "cooldown_too_small"
-                    elif cooldown_period > 10:
-                        errors[CONF_COOLDOWN_PERIOD] = "cooldown_too_large"
-
-                if not errors:
-                    self._data.update(user_input)
-                    if CONF_WEB_SEARCH not in self._data:
-                        self._data[CONF_WEB_SEARCH] = DEFAULT_WEB_SEARCH
-                    
-                    if user_input.get(CONF_HISTORY_ANALYSIS):
-                        return await self.async_step_history()
-                    return self.async_create_entry(title="", data=self._data)
+                self._data.update(user_input)  
+                if user_input.get(CONF_HISTORY_ANALYSIS):
+                    return await self.async_step_history()
+                return self.async_create_entry(title="", data=self._data)
             except ValueError:
                 errors["base"] = "invalid_option"
 
@@ -337,6 +330,12 @@ def zhipuai_config_option_schema(
         for api in llm.async_get_apis(hass)
     )
 
+    notify_services = [SelectOptionDict(value="persistent_notification", label="全局通知 (notify.persistent_notification)")]
+    
+    for service_id in hass.services.async_services().get("notify", {}):
+        if service_id != "persistent_notification":
+            notify_services.append(SelectOptionDict(value=service_id, label=f"{service_id}"))
+    
     schema = {
         vol.Optional(
             CONF_PROMPT,
@@ -344,8 +343,8 @@ def zhipuai_config_option_schema(
         ): TemplateSelector(),
         vol.Optional(
             CONF_LLM_HASS_API,
-            description={"suggested_value": options.get(CONF_LLM_HASS_API)},
-            default="none",
+            description={"suggested_value": options.get(CONF_LLM_HASS_API, llm.LLM_API_ASSIST)},
+            default=llm.LLM_API_ASSIST,
         ): SelectSelector(SelectSelectorConfig(options=hass_apis)),
         vol.Required(
             CONF_RECOMMENDED,
@@ -355,7 +354,41 @@ def zhipuai_config_option_schema(
             CONF_CHAT_MODEL,
             description={"suggested_value": options.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL)},
             default=RECOMMENDED_CHAT_MODEL,
-        ): SelectSelector(SelectSelectorConfig(options=ZHIPUAI_MODELS)),
+        ): SelectSelector(SelectSelectorConfig(
+            options=[
+                SelectOptionDict(
+                    value=model_id,
+                    label=model_id
+                )
+                for model_id in ZHIPUAI_MODELS
+            ],
+            translation_key="model_descriptions"
+        )),
+        vol.Optional(
+            CONF_FILTER_MARKDOWN,
+            description={"suggested_value": options.get(CONF_FILTER_MARKDOWN, DEFAULT_FILTER_MARKDOWN)},
+            default=DEFAULT_FILTER_MARKDOWN,
+        ): SelectSelector(
+            SelectSelectorConfig(
+                options=[
+                    SelectOptionDict(value="off", label="filter_markdown.off"),
+                    SelectOptionDict(value="on", label="filter_markdown.on")
+                ],
+                mode="dropdown",
+                translation_key="filter_markdown"
+            )
+        ),
+        vol.Optional(
+            CONF_NOTIFY_SERVICE,
+            description={"suggested_value": options.get(CONF_NOTIFY_SERVICE, DEFAULT_NOTIFY_SERVICE)},
+            default=DEFAULT_NOTIFY_SERVICE,
+        ): SelectSelector(
+            SelectSelectorConfig(
+                options=notify_services,
+                mode="dropdown",
+                translation_key="notify_service"
+            )
+        ),
         vol.Optional(
             CONF_MAX_HISTORY_MESSAGES,
             description={"suggested_value": options.get(CONF_MAX_HISTORY_MESSAGES)},
@@ -366,15 +399,6 @@ def zhipuai_config_option_schema(
             description={"suggested_value": options.get(CONF_MAX_TOOL_ITERATIONS, DEFAULT_MAX_TOOL_ITERATIONS)},
             default=DEFAULT_MAX_TOOL_ITERATIONS,
         ): int,
-        vol.Optional(
-            CONF_COOLDOWN_PERIOD,
-            description={"suggested_value": options.get(CONF_COOLDOWN_PERIOD, DEFAULT_COOLDOWN_PERIOD)},
-            default=DEFAULT_COOLDOWN_PERIOD,
-        ): vol.All(
-            vol.Coerce(float),
-            vol.Range(min=0, max=10),
-            msg="冷却时间必须在0到10秒之间"
-        ),
         vol.Optional(
             CONF_REQUEST_TIMEOUT,
             description={"suggested_value": options.get(CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT)},
