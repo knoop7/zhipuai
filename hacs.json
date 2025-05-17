@@ -2,7 +2,7 @@
   "name": "智谱清言(ZHIPU.AI)",
   "render_readme": true,
   "content_in_root": false,
-  "country": ["EN","ZH"],
+  "country": ["US","CN","TW","HK"],
   "homeassistant": "2024.11.0"
 
 }
