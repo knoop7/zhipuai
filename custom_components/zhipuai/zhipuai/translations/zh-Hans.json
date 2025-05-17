@@ -1,0 +1,156 @@
+{
+  "title": "智谱清言",
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "name": "自定义名称",
+          "api_key": "API 密钥"
+        },
+        "description": "获取密钥：[点击链接](https://www.bigmodel.cn/invite?icode=9niOGcfvBKiiCpCLI4tgtX3uFJ1nZ0jLLgipQkYjpcA%3D)"
+      },
+      "reauth_confirm": {
+        "title": "重新验证 智谱AI",
+        "description": "您的 智谱AI API密钥已失效，请输入新的 API 密钥",
+        "data": {
+          "api_key": "API 密钥"
+        }
+      },
+      "reconfigure_confirm": {
+        "title": "重新配置 智谱AI",
+        "description": "请输入新的配置信息",
+        "data": {
+          "api_key": "API 密钥"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "无法连接到服务",
+      "invalid_auth": "API密钥错误",
+      "unknown": "未知错误",
+      "model_not_found": "找不到指定的模型",
+      "invalid_api_key": "API Key 格式错误"
+    },
+    "abort": {
+      "already_configured": "设备已经配置",
+      "reauth_successful": "重新认证成功",
+      "reconfigure_successful": "重新配置成功"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "chat_model": "聊天模型",
+          "temperature": "温度",
+          "max_tokens": "最大令牌数",
+          "max_history_messages": "最大历史消息数",
+          "top_p": "Top P",
+          "prompt": "提示词模板",
+          "max_tool_iterations": "最大工具迭代次数",
+          "request_timeout": "请求超时（秒）",
+          "filter_markdown": "Markdown 格式过滤",
+          "llm_hass_api": "Home Assistant LLM API",
+          "recommended": "使用推荐模型设置",
+          "web_search": "互联网分析搜索",
+          "history_analysis": "实体历史数据分析",
+          "presence_penalty": "话题新鲜度",
+          "frequency_penalty": "重复度惩罚",
+          "stop_sequences": "停止序列",
+          "tool_choice": "工具使用模式",
+          "notify_service": "通知服务"
+        },
+        "data_description": {
+          "prompt": "指示 LLM 应如何响应。这可以是一个模板。",
+          "chat_model": "请选择要使用的聊天模型。默认请选择免费通用128K模型，如需更好体验可选择支持其他付费模型，实际费用不高，具体请查看官网计费标准。",
+          "max_tokens": "设置AI响应的最大字数限制。建议值：对话200-500，总结800-1500，创作2000-3000。数值越大，响应越详细 Plus 等付费模型费用越高，由于是家庭沟通所设置回复长度为250字数。",
+          "temperature": "控制AI回答的创造性（0-2）。0最保守严谨，1平衡发散，2最具创造性。建议：指令执行用0-0.3，日常对话0.5-0.7，创意发散0.8-1，默认为常规对话的中间值",
+          "top_p": "控制回答的新颖程度（0-1）。值越大，选词越新颖但可能不够稳定。建议：精确任务用0.1-0.3，常规对话0.5-0.7，创意任务0.8-1，默认为常规对话的中间值。",
+          "notify_service": "指定发送通知时使用的服务。默认为选择全局通知以使用Home Assistant的持久通知，或选择特定的通知服务。向AI话术举例：通知，明天是女儿的生日祝福她。",
+          "llm_hass_api": "开启 LLM API",
+          "recommended": "New！可选高级功能",
+          "max_history_messages": "设置要保留的最大历史消息数。功能：控制输入内容的记忆功能，记忆功能可以保证上下文对话顺畅，一般控制家居设备最好控制在5次以内，对请求不能顺利进行有效，其他日常对话可以设置阈值在10次以上。",
+          "max_tool_iterations": "设置单次对话中的最大工具调用次数。其功能是对系统LLM调用请求设置调用阈值，如果出错可以保证系统不会卡死，尤其是对各种性能较弱的小主机的设计，建议设置20-30次。",
+          "request_timeout": "设置AI请求的（10-120秒）超时时间。作用：控制等待AI响应的最长时间，生成较长文本时可能需要增加此值。建议：如果是较短快速响应对话，可以设置10秒左右。如果出现AI报错，可以适当增加此值。如需生成超过1000字的长文本，建议设置60秒以上。",
+          "filter_markdown": "控制是否过滤 AI 响应中的 Markdown 格式标记。开启后会移除标题、列表等格式符号。",
+          "presence_penalty": "控制模型谈论新话题的倾向（-2到2）。值越高，模型越倾向于谈论新的话题，避免一直围绕同一主题。可以自定义自己喜欢的属性值。",
+          "frequency_penalty": "控制模型重复内容的倾向（-2到2）。值越高，模型越不倾向于重复相同的信息，有助于生成更多样化的回答。风格的调整例如活泼可爱风格，即输入较高值。",
+          "stop_sequences": "设置AI回答的停止标记。作用：精确控制AI回答的结束位置。根据场景选择合适的停止标记，简单指令用句号(。)，多段说明用换行(\\n)，问答对话用问号(?)，状态报告用分号(;)。可组合使用,控制回答长度和格式。",
+          "tool_choice": "控制模型如何使用工具。'自动'让模型自行决定，'禁用'完全不使用工具，'强制'要求必须使用工具。请注意如果选择禁用工具，将无法使用控制家庭设备！"
+        }
+      },
+      "history": {
+        "title": "实体历史数据分析配置",
+        "description": "在**Jinja2模版**（Home Assistant的模板系统）无法实现的场景下提供**实体历史数据分析**，保证AI理解并分析您的设备数据，举例：可以用于自动化帮您分析家中安防、人员活动轨迹，日常生活总结，UI文本模版介绍等。\n\n• 支持**AI辅助分析**历史数据（让AI理解并分析您的设备数据）\n• 为**设备管理**提供智能决策支持\n• 建议控制在**1天历史数据**范围内以获得最佳效果\n• **特别提醒**：对于温湿度、光照度等频繁更新的环境传感器，请避免选择防止AI溢出(可以按照默认10分钟设置）",
+        "data": {
+          "history_entities": "选择实体",
+          "history_days": "获取实体在存储库中的 (1-15天) 天数范围",
+          "history_interval": "获取实体在存储库中的更新时间（分钟）"
+        }
+      }
+    },
+    "error": {
+        "no_entities": "请选择至少一个实体",
+        "invalid_days": "历史数据天数必须在 1-15天之间"
+      }
+  },
+  "selector": {
+    "model_descriptions": {
+      "options": {
+        "GLM-4-Plus": "GLM-4-Plus - 高智能旗舰，128K/4K，5元/百万tokens",
+        "GLM-4-0520": "GLM-4-0520 - 稳定版本，128K/4K，100元/百万tokens",
+        "GLM-4-Long": "GLM-4-Long - 超长输入，1M/4K，1元/百万tokens",
+        "GLM-4-Air": "GLM-4-Air - 高性价比，128K/16K，0.5元/百万tokens",
+        "GLM-4-Air-250414": "GLM-4-Air-250414 - 高性价比，128K/16K，0.5元/百万tokens",
+        "GLM-4-AirX": "GLM-4-AirX - 极速推理，8K/4K，10元/百万tokens",
+        "GLM-4-Flash": "GLM-4-Flash - 免费通用，128K/16K，免费",
+        "glm-4-flash-250414": "GLM-4-Flash-250414 - 免费通用，128K/16K，免费",
+        "glm-4-flashx-250414": "GLM-4-FlashX-250414 - 高速低价，128K/4K，0.1元/百万tokens",
+        "glm-zero-preview": "glm-zero-preview - 早期推理，128K/16k，0.1元/百万tokens",
+        "GLM-Z1-Air": "GLM-Z1-Air - 轻量推理，128K/32K，0.5元/百万tokens",
+        "GLM-Z1-AirX": "GLM-Z1-AirX - 极速推理，32K/30K，5元/百万tokens",
+        "GLM-Z1-flash": "GLM-Z1-flash - 免费推理，128K/32K，免费",
+        "GLM-Z1-flashX-250414": "GLM-Z1-flashX-250414 - 低价推理，128K/32K，0.5元/百万tokens",
+        "CharGLM-4": "CharGLM-4 - 拟人对话，8K/4K，1元/百万tokens",
+        "GLM-4-AllTools": "GLM-4-AllTools - 全能工具，128K/32K，1元/百万token",
+        "GLM-4-Assistant": "GLM-4-Assistant - 全智能体，128K/4K，5元/百万Tokens",
+        "GLM-4-CodeGeex-4": "GLM-4-CodeGeex - 代码生成，128K/32K，0.1元/百万Tokens"
+      }
+    },
+    "stop_sequences": {
+      "options": {
+        "\\n": "换行符 (\\n)",
+        "。": "句号 (。)",
+        "！": "感叹号 (！)",
+        "？": "问号 (？)",
+        "；": "分号 (；)",
+        "：": "冒号 (：)",
+        ",": "英文逗号 (,)",
+        ".": "英文句号 (.)"
+      }
+    },
+    "tool_choice": {
+      "options": {
+        "auto": "自动",
+        "none": "禁用",
+        "force": "强制"
+      }
+    },
+    "filter_markdown": {
+      "options": {
+        "off": "关闭",
+        "on": "开启"
+      }
+    },
+    "notify_service": {
+      "options": {
+        "persistent_notification": "全局通知 (persistent_notification)"
+      }
+    }
+  },
+  "exceptions": {
+    "invalid_config_entry": {
+      "message": "提供的配置条目无效。得到的是 {config_entry}"
+    }
+  }
+}

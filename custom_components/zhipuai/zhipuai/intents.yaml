@@ -1,0 +1,361 @@
+language: "zh-cn"
+intents:
+
+  MassPlayMediaAssist:
+    data:
+      - sentences:
+          - "在<area><play>(歌手|艺术家){artist}的(歌|音乐)"
+          - "在<area><play><album>{album}"
+          - "在<area><play><track>{track}"
+          - "在<area><play><playlist>{playlist}"
+          - "在<area><play><radio_station>{radio}"
+        expansion_rules:
+          play: "(play|播放|收听)"
+          track: "(track|歌曲|音乐)"
+          album: "(album|专辑|唱片|合集|单曲)"
+          playlist: "(playlist|播放列表)"
+          radio_station: "(radio_station|广播电台|电台|频道)"
+
+      - sentences:
+          - "用{name}<play>(歌手|艺术家){artist}的(歌|音乐)"
+          - "用{name}<play><album>{album}"
+          - "用{name}<play><track>{track}"
+          - "用{name}<play><playlist>{playlist}"
+          - "用{name}<play><radio_station>{radio}"
+        expansion_rules:
+          play: "(play|播放|收听)"
+          track: "(track|歌曲|音乐)"
+          album: "(album|专辑|唱片|合集|单曲)"
+          playlist: "(playlist|播放列表)"
+          radio_station: "(radio_station|广播电台|电台|频道)"
+        requires_context:
+          domain: "media_player"
+
+      - sentences:
+          - "用在<area>[里]的{name}<play>(歌手|艺术家){artist}的(歌|音乐)"
+          - "用在<area>[里]的{name}<play><album>{album}"
+          - "用在<area>[里]的{name}<play><track>{track}"
+          - "用在<area>[里]的{name}<play><playlist>{playlist}"
+          - "用在<area>[里]的{name}<play><radio_station>{radio}"
+        expansion_rules:
+          play: "(play|播放|收听)"
+          track: "(track|歌曲|音乐)"
+          album: "(album|专辑|唱片|合集|单曲)"
+          playlist: "(playlist|播放列表)"
+          radio_station: "(radio_station|广播电台|电台|频道)"
+
+      - sentences:
+          - "<play>(歌手|艺术家){artist}的(歌|音乐)"
+          - "<play><album>{album}"
+          - "<play><track>{track}"
+          - "<play><playlist>{playlist}"
+          - "<play><radio_station>{radio}"
+        expansion_rules:
+          play: "(play|播放|收听)"
+          track: "(track|歌曲|音乐)"
+          album: "(album|专辑|唱片|合集|单曲)"
+          playlist: "(playlist|播放列表)"
+          radio_station: "(radio_station|广播电台|电台|频道)"
+        requires_context:
+          area:
+            slot: true
+
+  ZHIPUAI_CoverGetStateIntent:
+    data:
+      - sentences:
+          - "[<area>]{name}(是|是不是){cover_states:state}[吗|不]"
+        response: one_yesno
+        requires_context:
+          domain: cover
+        slots:
+          domain: cover
+
+      - sentences:
+          - "[{area}][有|有没有]{cover_classes:device_class}[是|是不是]{cover_states:state}[吗|不]"
+        response: any
+        slots:
+          domain: cover
+
+      - sentences:
+          - "[<area>][<all>]{cover_classes:device_class}[是|是不是]都[是]{cover_states:state}[吗|不]"
+          - "<all><area>{cover_classes:device_class}[是|是不是]都[是]{cover_states:state}[吗|不]"
+        response: all
+        slots:
+          domain: cover
+
+      - sentences:
+          - "[<area>]<which>{cover_classes:device_class}[是]{cover_states:state}"
+          - "<which>[<area>]{cover_classes:device_class}[是]{cover_states:state}"
+        response: which
+        slots:
+          domain: cover
+
+      - sentences:
+          - "[{area}]<how_many_is>{cover_classes:device_class}[是]{cover_states:state}"
+          - "<how_many_is>[<area>]{cover_classes:device_class}[是]{cover_states:state}"
+        response: how_many
+        slots:
+          domain: cover
+
+  ZHIPUAI_CoverSetPositionIntent:
+    data:
+      - sentences:
+          - "(<numeric_value_set>|<open>|<close>) <name> [position] <to> <position>"
+        requires_context:
+          domain: cover
+        slots:
+          domain: cover
+
+      - sentences:
+          - "(<numeric_value_set>|<open>|<close>) <area> {cover_classes:device_class}[ position] <to> <position>"
+        slots:
+          domain: cover
+
+      - sentences:
+          - "[<let>] <name> (<numeric_value_set>|<open>|<close>) [position] <to> <position>"
+        requires_context:
+          domain: cover
+        slots:
+          domain: cover
+
+      - sentences:
+          - "[<let>]<area>{cover_classes:device_class}(<numeric_value_set>|<open>|<close>)[ position] <to> <position>"
+        slots:
+          domain: cover
+
+  HassGetState:
+    data:
+      - sentences:
+          - "[查询|查看][<area>]{name}[的]状态"
+          - "[<area>]{name}[现在|当前]是什么状态"
+          - "[<area>]{name}[怎么样|如何]"
+        slots:
+          domain: all
+
+      - sentences:
+          - "[<area>]{name}[的锁](是不是|有没有){lock_states:state}"
+          - "[<area>]{name}[的锁][是|有]{lock_states:state}[吗|不]"
+        response: one_yesno
+        requires_context:
+          domain: lock
+        slots:
+          domain: lock
+
+  ZhipuAIWebSearch:
+    data:
+      - sentences:
+          - "(联网|上网|互联网)(搜索|查找|查询){time_query}{query}"
+          - "(联网|上网|互联网)(搜索|查找|查询){time_query}的{query}"
+          - "[帮我|请](联网|上网|互联网)(搜索|查找|查询){time_query}{query}"
+          - "[帮我|请](联网|上网|互联网)(搜索|查找|查询){time_query}的{query}"
+          - "(百度|谷歌|必应|夸克|搜狗|gj|jc|sg|kq)(搜索|查找|查询){time_query}{query}"
+          - "(夸克|高阶版|基础版|搜索|搜狗)(搜索|查找|查询){time_query}{query}"
+        slots:
+          query:
+            type: text
+            example: "中国队奥运会奖牌数"
+          time_query:
+            type: list
+            values:
+              - "今天"
+              - "今日"
+              - "昨天"
+              - "昨日"
+              - "明天"
+              - "明日"
+              - "当前"
+              - "现在"
+          search_engine:
+            type: list
+            values:
+              - "基础版"
+              - "高阶版"
+              - "夸克"
+              - "搜狗"
+              - "jc"
+              - "gj"
+              - "kk"
+              - "sg"
+
+  CameraAnalyzeIntent:
+    data:
+      - sentences:
+          - "查看{camera_name}的{question}"
+          - "看看{camera_name}的{question}"
+          - "告诉我{camera_name}的{question}"
+          - "{camera_name}现在{question}"
+          - "分析{camera_name}的{question}"
+          - "查看{camera_name}的{question}"
+          - "检查{camera_name}的{question}"
+          - "观察{camera_name}的{question}"
+          - "识别{camera_name}的{question}"
+          - "告诉我{camera_name}的{question}"
+          - "帮我看看{camera_name}的{question}"
+          - "帮我分析{camera_name}的{question}"
+          - "帮我检查{camera_name}的{question}"
+          - "帮我识别{camera_name}的{question}"
+          - "{camera_name}那里的{question}"
+          - "{camera_name}现在的{question}"
+          - "{camera_name}目前的{question}"
+          - "看一下{camera_name}的{question}"
+          - "分析一下{camera_name}的{question}"
+          - "检查一下{camera_name}的{question}"
+          - "观察一下{camera_name}的{question}"
+          - "识别一下{camera_name}的{question}"
+          - "分析下{camera_name}{question}"
+          - "查看下{camera_name}{question}"
+          - "看看{camera_name}{question}"
+          - "analyze {camera_name} {question}"
+          - "check {camera_name} {question}"
+          - "look at {camera_name} {question}"
+          - "identify {camera_name} {question}"
+        slots:
+          camera_name:
+            type: text
+          question:
+            type: text
+    speech:
+      text: "正在分析摄像头画面，请稍等..."
+
+  HassTimerIntent:
+    action:
+      - timer
+    speech:
+      text: 设置计时器
+    slots:
+      action:
+        type: text
+      duration:
+        type: text
+      timer_name:
+        type: text
+    templates:
+      - "[设置|创建|添加|开始|启动]一个{duration}的[计时器|定时器]{timer_name}"
+      - "[设置|创建|添加|开始|启动]{duration}的[计时器|定时器]{timer_name}"
+      - "在{duration}[后|以后|之后][提醒我|叫我|通知我]{timer_name}"
+      - "{duration}[后|以后|之后][提醒我|叫我|通知我]{timer_name}"
+      - "[设置|创建|添加|开始|启动]{duration}[倒计时|计时]{timer_name}"
+      - "[取消|停止|关闭|结束|删除][计时器|定时器]{timer_name}"
+      - "{duration}[后|以后|之后][叫我|提示我]{timer_name}"
+
+  HassNotifyIntent:
+    action:
+      - notify
+    speech:
+      text: 发送通知
+    slots:
+      message:
+        type: text
+    templates:
+      - "[记住|记录|记一下|备忘]{message}"
+      - "帮我[记住|记录|记一下|备忘]{message}"
+      - "[创建|发送|做个]通知{message}"
+      - "[记住|记录|记一下|备忘][这个|这件事]{message}"
+      - "帮我[记住|记录|记一下|备忘][这个|这件事]{message}"
+      - "[帮我|请|麻烦|给我][记住|记录|记一下|备忘][这个|这件事]{message}"
+      - "[帮我|请|麻烦|给我][创建|发送]一个通知{message}"
+      - "[提醒我|提醒|提醒一下]{message}"
+      - "帮我[提醒|提醒一下]{message}"
+      - "帮我[提醒|提醒一下][这个|这件事]{message}"
+
+  ClimateSetTemperature:
+    data:
+      - sentences:
+          - "[把|将]{name}[温度|]调[到|成|为]{temperature}[度|]"
+          - "[把|将]{name}调[到|成|为]{temperature}[度|]"
+          - "设置{name}[温度|]为{temperature}[度|]"
+          - "{name}[温度|]调[到|成|为]{temperature}[度|]"
+          - "调{name}[温度|]到{temperature}[度|]"
+          - "把{name}的温度调[到|成|为]{temperature}[度|]"
+          - "给{name}[调|设置]温度[到|为]{temperature}[度|]"
+        slots:
+          name:
+            type: text
+          temperature:
+            type: number
+
+  ClimateSetMode:
+    data:
+      - sentences:
+          - "[把|将]{name}设[为|成]{mode}[模式|]"
+          - "设置{name}为{mode}[模式|]"
+          - "{name}[切换到|改成|改为]{mode}[模式|]"
+          - "[打开|启动]{name}[的|]{mode}[模式|]"
+          - "{name}{mode}[模式|]"
+        slots:
+          name:
+            type: text
+          mode:
+            type: list
+            values:
+              - 制冷
+              - 制热
+              - 自动
+              - 除湿
+              - 送风
+              - 关闭
+              - 停止
+
+  ClimateSetFanMode:
+    data:
+      - sentences:
+          - "[把|将]{name}[的|]风速调[到|成|为]{fan_mode}"
+          - "设置{name}[的|]风速[为|到]{fan_mode}"
+          - "{name}风速调[成|为]{fan_mode}"
+          - "调[整|]{name}[的|]风速[为|到]{fan_mode}"
+          - "{name}调[成|为]{fan_mode}风速"
+        slots:
+          name:
+            type: text
+          fan_mode:
+            type: list
+            values:
+              - 高档
+              - 低档
+              - 高速
+              - 低速
+              - 自动高
+              - 自动低
+              - 强劲
+              - 自动
+
+  ClimateSetSwingMode:
+    data:
+      - sentences:
+          - "[把|将]{name}[的|]摆风[设置|调|调到|调成|改成|改到]{swing_mode}"
+          - "[把|将]{name}[的|]摆动[设置|调|调到|调成|改成|改到]{swing_mode}"
+          - "设置{name}[的|]摆风[为|到]{swing_mode}"
+          - "设置{name}[的|]摆动[为|到]{swing_mode}"
+        slots:
+          name:
+            type: text
+          swing_mode:
+            type: text
+        response:
+          success: 已将{name}的摆动模式设置为{swing_mode}
+          not_found: 找不到名为{name}的空调
+          not_supported: "{name}不支持摆动模式设置"
+          invalid_mode: 不支持的摆动模式。{name}支持的模式有：{modes}
+          operation_failed: 设置摆动模式失败：{error}
+
+
+  ClimateSetHumidity:
+    data:
+      - sentences:
+          - "[把|将]{name}[的|]湿度[设置|调][到|成|为]{humidity}[%|度]"
+          - "设置{name}[的|]湿度[为|到]{humidity}[%|度]"
+          - "{name}湿度[设置|调][成|为]{humidity}[%|度]"
+          - "调[整|]{name}[的|]湿度[为|到]{humidity}[%|度]"
+        slots:
+          name:
+            type: text
+          humidity:
+            type: number
+        response:
+          success:
+            text: 已将{name}湿度设置为{humidity}%
+          error:
+            not_found: 未找到名为{name}的空调
+            operation_failed: 设置湿度失败，{error}
+            invalid_humidity: 湿度必须在0%到100%之间
+
