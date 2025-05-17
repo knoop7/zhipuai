@@ -1,5 +1,5 @@
 """
-# 提示词指南
+
 所有提示词必须遵循以下规则:
 1. 不可以使用例如举例，只说明参数格式和用途
 2. 参数说明要简洁明了，只描述参数类型和用途
@@ -20,10 +20,10 @@ from typing import List, Dict, Any, Set
 
 LIGHT_CONTROL = {
     "prompt": """
-# 灯光控制指南
+
 对于灯光控制请求，必须正确使用工具：
 
-## 控制单个灯
+
 使用HassLightSetAllIntent工具，参数说明：
 - name: 具体灯具名称
 - domain: 设备域名，默认为'light'，可选'switch'
@@ -32,14 +32,14 @@ LIGHT_CONTROL = {
 - brightness: 亮度值(0-100)
 - color_temp: 色温，可用描述词或数值(2600-6500)
 
-## 控制多个灯或所有灯
+
 控制所有灯须知：
 1. 禁止将'all_lights'作为name参数值
 2. 使用HassTurnOn/HassTurnOff工具：
    - domain参数指定为'light'控制所有灯
    - area参数指定区域控制该区域内所有灯
 
-## 故障排除
+
 当light域设备无法控制时：
 1. 将domain参数更改为'switch'
 2. 使用HassTurnOn/HassTurnOff工具替代HassLightSetAllIntent
@@ -53,7 +53,7 @@ LIGHT_CONTROL = {
 
 WEB_SEARCH = {
     "prompt": """
-# 网络搜索指南
+
 使用ZhipuAIWebSearch进行网络搜索
 基本搜索: ZhipuAIWebSearch(query='上海天气')
 指定时间搜索: ZhipuAIWebSearch(query='新闻热点', time_query='今天')
@@ -87,7 +87,7 @@ WEB_SEARCH = {
 
 CLIMATE_CONTROL = {
     "prompt": """
-# 温控器控制指南
+
 必须使用ClimateSetTemperature/ClimateSetMode/ClimateSetFanMode进行温控器控制，禁止直接通过文本回答
 参数说明:
 - name: 空调名称
@@ -101,21 +101,20 @@ CLIMATE_CONTROL = {
 
 MEDIA_PLAYER = {
     "prompt": """
-# 媒体播放指南
+
 必须使用MassPlayMediaAssist进行媒体播放控制：
 
-## 基本用法
-- query: 要播放的内容(必填)
-- area: 播放区域(可选)
-- name: 指定播放设备(可选)
 
-## 注意事项
+- query: 要播放的内容(必填)
+- name: 指定播放设备(必填)
+
+
 1. name参数只能使用实际设备名称，禁止使用设备名称作为query值
 2. 对于已存在的播放设备，必须指定正确的设备名称，不要将设备名重复用作query
 3. 使用query参数指定要播放的歌曲、歌手或内容
 4. 控制特定播放器播放时，使用name参数指定播放器名称
 
-## 故障排除
+
 当播放器无法播放时：
 1. 检查播放器名称是否正确，避免将名称作为query参数使用
 2. 使用HassTurnOn/HassMediaPlay代替MassPlayMediaAssist
@@ -129,19 +128,19 @@ MEDIA_PLAYER = {
 
 MEDIA_PLAYER_STATUS = {
     "prompt": """
-# 媒体播放状态查询
+
 必须使用GetLiveContext获取媒体播放器当前状态：
 
-## 参数说明
+
 - domain: 必须为'media_player'
 - entity_id: 播放器实体ID(可选)
 
-## 注意事项
+
 1. 查询播放器状态必须使用GetLiveContext工具
 2. 查询后，必须基于查询结果提供当前播放信息
 3. 不要尝试直接通过文本回答播放状态相关问题
 
-## 故障排除
+
 若状态查询失败：
 1. 检查播放器实体ID是否正确
 2. 使用GetLiveContext查询所有media_player域设备
@@ -155,7 +154,7 @@ MEDIA_PLAYER_STATUS = {
 
 TIMER = {
     "prompt": """
-# 定时器指南
+
 使用HassTimerIntent设置和管理定时器
 参数说明:
 - action: 操作类型，'set'/'stop'/'cancel'
@@ -168,7 +167,7 @@ TIMER = {
 
 COVER_CONTROL = {
     "prompt": """
-# 窗帘控制指南
+
 必须使用CoverControlAll控制窗帘，禁止直接通过文本回答
 参数说明:
 - action: 'open'/'close'，控制所有窗帘
@@ -180,7 +179,7 @@ COVER_CONTROL = {
 
 NOTIFY_INTENT = {
     "prompt": """
-# 通知提醒
+
 HassNotifyIntent 用于创建持久性通知
 参数: message(通知内容)
 """,
@@ -190,7 +189,7 @@ HassNotifyIntent 用于创建持久性通知
 
 CAMERA_ANALYZE = {
     "prompt": """
-# 摄像头分析
+
 ZhipuAICameraAnalyze 用于分析摄像头画面
 参数: camera_name(摄像头名称), question(问题)
 """,
@@ -200,7 +199,7 @@ ZhipuAICameraAnalyze 用于分析摄像头画面
 
 CLIMATE_ADVANCED = {
     "prompt": """
-# 高级空调控制
+
 ClimateSetHumidity: 设置湿度(10-100)
 ClimateSetSwingMode: 设置摆风模式(vertical/horizontal/both/off)
 """,
@@ -210,7 +209,7 @@ ClimateSetSwingMode: 设置摆风模式(vertical/horizontal/both/off)
 
 COVER_POSITION = {
     "prompt": """
-# 窗帘位置控制
+
 ZHIPUAI_CoverSetPositionIntent 用于设置窗帘位置
 参数: name(窗帘名称), position(位置0-100)
 """,
@@ -220,7 +219,7 @@ ZHIPUAI_CoverSetPositionIntent 用于设置窗帘位置
 
 IMAGE_GEN = {
     "prompt": """
-# 图像生成
+
 ZhipuAIImageGen 用于生成图像
 参数: prompt(图像描述)
 """,
@@ -230,7 +229,7 @@ ZhipuAIImageGen 用于生成图像
 
 DEVICE_STATUS = {
     "prompt": """
-# 设备状态查询
+
 必须使用GetLiveContext获取设备当前状态，禁止直接通过文本回答
 参数说明:
 - domain: 设备类型('light'/'switch'/'sensor'等)
@@ -242,10 +241,10 @@ DEVICE_STATUS = {
 
 TOOL_USAGE_MANDATORY = {
     "prompt": """
-# 工具使用强制要求
+
 必须通过工具调用实现所有设备控制和状态查询:
 
-## 强制规则
+
 1. 所有家居设备控制请求必须使用工具调用，禁止文本回复
 2. 设备名称+动作指令组合必须识别为控制指令并使用工具
 3. 播放器控制必须使用HassMediaPlay工具，含以下参数:
@@ -254,15 +253,15 @@ TOOL_USAGE_MANDATORY = {
 4. 对于不确定的控制指令，必须优先尝试使用工具
 5. 即使预计操作可能无法完成，也必须通过工具尝试执行
 
-## 工具优先级
+
 - 媒体播放器: HassMediaPlay > MassPlayMediaAssist 
 
-## 工具调用失败处理
+
 - 一个工具失败后，尝试使用替代工具
 - 仅当所有可能工具都尝试失败后，才可告知用户操作无法完成
 - 工具调用失败后，调整参数格式并使用替代工具
 
-## 严格禁止
+
 - 禁止直接回复"我无法控制"或"请使用其他方式控制"
 - 禁止跳过工具调用直接回复文本
 - 禁止以任何理由拒绝尝试使用工具执行用户请求
@@ -273,15 +272,15 @@ TOOL_USAGE_MANDATORY = {
 
 MEDIA_CONTROL = {
     "prompt": """
-# 媒体播放器控制
+
 必须使用工具控制媒体播放器，严禁直接文本回答
 
-## 关键规则
+
 1. 设备名称+动作指令组合必须识别为控制指令并使用工具
 2. 播放器控制必须使用工具，禁止以任何理由拒绝尝试
 3. 即使预计操作可能不成功，也必须通过工具尝试执行
 
-## 工具使用参数
+
 - HassMediaPlay/HassMediaPause工具参数:
   - name: 播放器名称
   - domain: 必须为'media_player'
@@ -293,7 +292,7 @@ MEDIA_CONTROL = {
 
 SWITCH_CONTROL = {
     "prompt": """
-# 开关控制
+
 必须使用HassTurnOn/HassTurnOff控制开关设备，禁止直接通过文本回答
 参数说明:
 - name: 设备名称
@@ -305,7 +304,7 @@ SWITCH_CONTROL = {
 
 SCENE_CONTROL = {
     "prompt": """
-# 场景控制
+
 必须使用HassTurnOn激活场景，禁止直接通过文本回答
 参数说明:
 - name: 场景名称
@@ -317,7 +316,7 @@ SCENE_CONTROL = {
 
 GROUP_CONTROL = {
     "prompt": """
-# 群组控制
+
 必须使用HassTurnOn/HassTurnOff控制群组设备，禁止直接通过文本回答
 参数说明:
 - name: 群组名称
@@ -351,14 +350,83 @@ ALL_FEATURES = [
 def detect_features_in_text(text: str) -> List[Dict]:
     if not text:
         return []
+    
     text_lower = text.lower()
-    matched_features = []
+    
+    device_patterns = {
+        "media": {
+            "devices": ["留声机", "音箱", "播放器", "音响", "天猫精灵", "小爱", "Echo", "Alexa"],
+            "actions": ["播放", "放", "搜索", "听"],
+            "features": [MEDIA_PLAYER, MEDIA_CONTROL]
+        },
+        "light": {
+            "devices": ["灯", "灯具", "照明"],
+            "actions": ["开", "关", "亮", "暗", "变色"],
+            "features": [LIGHT_CONTROL]
+        },
+        "climate": {
+            "devices": ["空调", "温控", "暖气"],
+            "actions": ["开", "关", "调", "温度"],
+            "features": [CLIMATE_CONTROL]
+        },
+        "cover": {
+            "devices": ["窗帘", "百叶窗", "卷帘"],
+            "actions": ["开", "关", "拉"],
+            "features": [COVER_CONTROL]
+        }
+    }
+    
+    for category, pattern in device_patterns.items():
+        if any(d in text_lower for d in pattern["devices"]):
+            if category == "media" and ("搜索" in text_lower or "播放" in text_lower or "放" in text_lower):
+                return pattern["features"]
+            elif any(a in text_lower for a in pattern["actions"]):
+                return pattern["features"]
+    
+    if "搜索" in text_lower or "查询" in text_lower or "查找" in text_lower:
+        media_terms = ["歌", "歌曲", "音乐", "专辑", "播放"]
+        web_terms = ["网上", "网络", "百度", "资料", "新闻"]
+        
+        if any(term in text_lower for term in media_terms):
+            return [MEDIA_PLAYER, MEDIA_CONTROL]
+        elif any(term in text_lower for term in web_terms):
+            return [WEB_SEARCH]
+    
+    color_terms = ["红色", "蓝色", "绿色", "黄色", "白色", "黑色"]
+    if any(color in text_lower for color in color_terms) and any(term in text_lower for term in ["灯", "灯光"]):
+        return [LIGHT_CONTROL]
+    
+    if "播放" in text_lower or "音乐" in text_lower or "歌曲" in text_lower:
+        return [MEDIA_PLAYER, MEDIA_CONTROL]
+    elif "灯" in text_lower and ("开" in text_lower or "关" in text_lower):
+        return [LIGHT_CONTROL]
+    
+    matched = []
     for feature in ALL_FEATURES:
-        for keyword in feature["keywords"]:
-            if keyword.lower() in text_lower:
-                matched_features.append(feature)
-                break
-    return matched_features
+        if feature not in [LIGHT_CONTROL, MEDIA_PLAYER, MEDIA_CONTROL, WEB_SEARCH, 
+                          CLIMATE_CONTROL, COVER_CONTROL, DEVICE_STATUS]:
+            continue
+            
+        
+        count = sum(1 for k in feature["keywords"] if k.lower() in text_lower)
+        if count >= 2 or (count == 1 and 
+                         any(len(k) > 3 and k.lower() in text_lower 
+                             for k in feature["keywords"])):
+            matched.append(feature)
+    
+    
+    if len(matched) > 2:
+        scores = []
+        for feature in matched:
+            
+            keyword_score = sum(2 if len(k) > 3 else 1 
+                              for k in feature["keywords"] 
+                              if k.lower() in text_lower)
+            scores.append((feature, keyword_score))
+        
+        matched = [f for f, _ in sorted(scores, key=lambda x: x[1], reverse=True)[:2]]
+    
+    return matched
 
 def detect_keywords_in_text(text: str) -> List[str]:
     if not text:

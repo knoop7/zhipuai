@@ -124,11 +124,22 @@ def is_service_call(user_input: str) -> bool:
 def extract_service_info(user_input: str, hass: HomeAssistant) -> Optional[Dict[str, Any]]:
     def find_entity(domain: str, text: str) -> Optional[str]:
         text = text.lower()
-        return next((entity_id for entity_id in hass.states.async_entity_ids(domain) 
+        entity_id = next((entity_id for entity_id in hass.states.async_entity_ids(domain) 
                     if text in entity_id.split(".")[1].lower() or 
                     text in hass.states.get(entity_id).attributes.get("friendly_name", "").lower() or
                     entity_id.split(".")[1].lower() in text or
                     hass.states.get(entity_id).attributes.get("friendly_name", "").lower() in text), None)
+        
+        if not entity_id:
+            ent_reg = entity_registry.async_get(hass)
+            for reg_entity_id in hass.states.async_entity_ids(domain):
+                reg_entity = ent_reg.async_get(reg_entity_id)
+                if reg_entity and hasattr(reg_entity, "aliases") and reg_entity.aliases:
+                    for alias in reg_entity.aliases:
+                        if text in alias.lower() or alias.lower() in text:
+                            return reg_entity_id
+        
+        return entity_id
 
     def clean_text(text: str, patterns: List[str]) -> str:
         control_words = ["让", "请", "帮我", "麻烦", "把", "将"]
@@ -148,15 +159,18 @@ def extract_service_info(user_input: str, hass: HomeAssistant) -> Optional[Dict[
                      "下一首": "media_next_track", "下一曲": "media_next_track", "下一个": "media_next_track",
                      "切歌": "media_next_track", "换歌": "media_next_track", "上一首": "media_previous_track",
                      "上一曲": "media_previous_track", "上一个": "media_previous_track",
-                     "返回上一首": "media_previous_track", "音量": "volume_set", "播放": "media_play",
+                     "返回上一首": "media_previous_track", "音量": "volume_set", 
                      "上1首": "media_previous_track", "下1首": "media_next_track",
                      "上1曲": "media_previous_track", "下1曲": "media_next_track",
                      "上1个": "media_previous_track", "下1个": "media_next_track"}
     
-    entity_id = find_entity("media_player", user_input)
-    
-    if not entity_id and last_media_player and any(p in user_input.lower() for p in media_patterns.keys()):
-        entity_id = last_media_player
+    text_lower = user_input.lower()
+    if "播放器" in text_lower:
+        entity_id = find_entity("media_player", text_lower)
+    else:
+        entity_id = find_entity("media_player", text_lower)
+        if not entity_id and last_media_player and any(p in text_lower for p in media_patterns.keys()):
+            entity_id = last_media_player
     
     if entity_id:
         hass._last_media_player = {'entity_id': entity_id}
@@ -277,35 +291,47 @@ class ToolCallProcessor:
         self.id_tracker = IdTracker()
         self.message_factory = MessageFactory()
         self.result_handler = ResultHandler(entity)
+        self.window_id = f"tool_call_{int(time.time())}"
     
     async def process(self, tool_calls, ai_content, messages, user_input, base_payload):
         request_id = f"req_{int(time.time())}"
         current_content = ai_content or ""
         max_iterations = self.entity.max_tool_iterations
-        pending_calls = tool_calls
+        pending_calls = tool_calls.copy() if tool_calls else []
         
         LOGGER.info("开始处理工具调用，最大迭代次数: %s，工具调用数: %s", 
-                    max_iterations, len(pending_calls) if pending_calls else 0)
+                   max_iterations, len(pending_calls) if pending_calls else 0)
+        
         
         for iteration in range(max_iterations):
             if not pending_calls:
-                LOGGER.debug("工具调用迭代 %s/%s: 没有待处理的调用，完成处理", 
-                            iteration + 1, max_iterations)
                 break
             
-            new_calls = self.id_tracker.filter_calls(pending_calls)
-            if not new_calls:
-                LOGGER.debug("工具调用迭代 %s/%s: 所有调用已处理，完成迭代", 
-                           iteration + 1, max_iterations)
-                break
-    
+            
+            new_call = None
+            for call in pending_calls:
+                call_id = call.get("id")
+                if not call_id or call_id not in self.id_tracker.processed_ids:
+                    new_call = call
+                    if call_id:
+                        self.id_tracker.processed_ids.add(call_id)
+                    break
+            
+            if not new_call:
+                pending_calls = []
+                continue
+            
+            
             messages.append(self.message_factory.create_assistant_message(
-                current_content, new_calls))
+                current_content, [new_call]))
             
-            results = await self._execute_tool_calls(new_calls, user_input.text)
+            
+            results = await self._execute_tool_calls([new_call], user_input.text)
+            
             
             for result in results:
                 messages.append(self.message_factory.create_tool_result_message(result))
+            
             
             session = chat_session.ChatSession(user_input.conversation_id or ulid.ulid_now())
             with conversation.async_get_chat_log(self.entity.hass, session, user_input) as chat_log:
@@ -318,62 +344,37 @@ class ToolCallProcessor:
                         payload, chat_log, self.entity.entity_id)
                     
                     current_content = response_data.get("content", current_content)
-                    pending_calls = response_data.get("tool_calls", [])
+                    new_pending_calls = response_data.get("tool_calls", [])
                     
-                    if self.id_tracker.all_processed(pending_calls):
-                        LOGGER.debug("工具调用迭代 %s/%s: 所有后续调用都已处理，完成迭代", 
-                                   iteration + 1, max_iterations)
-                        pending_calls = []
+                    if new_pending_calls:
+                        pending_calls = [
+                            call for call in new_pending_calls 
+                            if not call.get("id") or call.get("id") not in self.id_tracker.processed_ids
+                        ]
                     else:
-                        messages.append(self.message_factory.create_assistant_message(
-                            current_content, pending_calls))
-                        LOGGER.debug("工具调用迭代 %s/%s: 有 %s 个新的工具调用待处理", 
-                                   iteration + 1, max_iterations, len(pending_calls))
-                    
+                        pending_calls = [
+                            call for call in pending_calls 
+                            if call != new_call
+                        ]
+                
                 except Exception as e:
                     LOGGER.exception("工具调用迭代 %s/%s 处理响应时出错: %s", 
                                     iteration + 1, max_iterations, str(e))
-                    
-                    messages.append({
-                        "role": "system",
-                        "content": f"工具调用处理遇到错误，请尝试不同的方法: {str(e)}"
-                    })
-                    
-                    if iteration > 3: 
-                        pending_calls = []
+                    pending_calls = [call for call in pending_calls if call != new_call]
         
-        final_content = current_content or ai_content or "已处理您的请求"
+        
+        final_content = current_content or ai_content or getattr(self.entity, '_last_error_message', "")
+        
         filtered_content = self.entity._filter_response_content(final_content)
         await self.entity._update_response(filtered_content)
+        
         
         final_message = self.message_factory.create_final_message(final_content)
         messages.append(final_message)
         
+        
         if hasattr(self.entity, 'session_histories') and user_input.conversation_id:
-            filtered_history = []
-            for msg in messages:
-                role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
-                
-                if role == "user":
-                    if isinstance(msg, dict):
-                        filtered_history.append(msg)
-                    else:
-                        filtered_history.append({"role": "user", "content": getattr(msg, "content", "")})
-                
-                elif role == "assistant":
-                    content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
-                    tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else getattr(msg, "tool_calls", None)
-                    
-                    if content and not tool_calls:
-                        filtered_history.append({"role": "assistant", "content": content})
-            
-            if filtered_content:
-                if filtered_history and filtered_history[-1].get("role") == "assistant":
-                    filtered_history[-1] = {"role": "assistant", "content": filtered_content}
-                else:
-                    filtered_history.append({"role": "assistant", "content": filtered_content})
-            
-            self.entity.session_histories[user_input.conversation_id] = filtered_history
+            self._save_session_history(messages, filtered_content, user_input.conversation_id)
         
         return filtered_content
     
@@ -385,24 +386,90 @@ class ToolCallProcessor:
 
     async def _execute_single_call(self, tool_call, user_text):
         tool_name = ""
-        tool_call_id = f"call_{int(time.time())}"
+        tool_call_id = f"{self.window_id}_{int(time.time())}"
         
         try:
             tool_name = tool_call["function"].get("name", "")
             tool_args_json = tool_call["function"].get("arguments", "{}")
-            tool_call_id = tool_call.get("id", f"call_{int(time.time())}")            
+            tool_call_id = tool_call.get("id", tool_call_id)
+            
+            
+            LOGGER.debug("执行工具调用: %s, 参数: %s", tool_name, tool_args_json)
+            
             tool_args = json.loads(tool_args_json) if tool_args_json else {"text": tool_args_json}
+            
+            
+            tool_args["_window_id"] = self.window_id
+            
+            
             tool_input = llm.ToolInput(id=tool_call_id, tool_name=tool_name, tool_args=tool_args)
             result = await self.entity._handle_tool_call(tool_input, user_text)
+            
+            
+            self.entity._last_tool_result = result
+            
             result_content = json.dumps(result, ensure_ascii=False) if isinstance(result, dict) else str(result)
             
-            return {"success": True, "tool_call_id": tool_call_id, "tool_name": tool_name, "content": result_content}
+            if not result.get("success", True):
+                
+                self.entity._last_error_message = result.get("message", result_content)
+                LOGGER.error("工具调用失败: %s, 错误: %s", tool_name, self.entity._last_error_message)
+            
+            return {
+                "success": result.get("success", True), 
+                "tool_call_id": tool_call_id, 
+                "tool_name": tool_name, 
+                "content": result_content
+            }
         except json.JSONDecodeError as e:
-            return {"success": False, "tool_call_id": tool_call_id, "tool_name": tool_name, 
-                    "content": json.dumps({"error": "参数格式错误"}, ensure_ascii=False)}
+            
+            original_error = str(e)
+            self.entity._last_error_message = original_error
+            LOGGER.error("参数格式错误: %s", original_error)
+            return {
+                "success": False, 
+                "tool_call_id": tool_call_id, 
+                "tool_name": tool_name, 
+                "content": json.dumps({"error": original_error}, ensure_ascii=False)
+            }
         except Exception as e:
-            return {"success": False, "tool_call_id": tool_call_id, "tool_name": tool_name, 
-                    "content": json.dumps({"error": str(e)}, ensure_ascii=False)}
+            
+            original_error = str(e)
+            self.entity._last_error_message = original_error
+            LOGGER.error("执行错误: %s", original_error)
+            return {
+                "success": False, 
+                "tool_call_id": tool_call_id, 
+                "tool_name": tool_name, 
+                "content": json.dumps({"error": original_error}, ensure_ascii=False)
+            }
+
+    def _save_session_history(self, messages, filtered_content, conversation_id):
+        filtered_history = []
+        
+        for msg in messages:
+            role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+            
+            if role == "user":
+                if isinstance(msg, dict):
+                    filtered_history.append(msg)
+                else:
+                    filtered_history.append({"role": "user", "content": getattr(msg, "content", "")})
+            
+            elif role == "assistant":
+                content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
+                tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else getattr(msg, "tool_calls", None)
+                
+                if content and not tool_calls:
+                    filtered_history.append({"role": "assistant", "content": content})
+        
+        if filtered_content:
+            if filtered_history and filtered_history[-1].get("role") == "assistant":
+                filtered_history[-1] = {"role": "assistant", "content": filtered_content}
+            else:
+                filtered_history.append({"role": "assistant", "content": filtered_content})
+        
+        self.entity.session_histories[conversation_id] = filtered_history
 
     async def _get_ai_response(self, payload, chat_log, entity_id):
         payload["stream"] = True
@@ -447,8 +514,10 @@ class ToolCallProcessor:
                             seen_tool_ids.add(call.get("id"))
                         result["tool_calls"] = new_calls if new_calls else result["tool_calls"]
             
+            
             result["tool_calls"] = [call for call in result["tool_calls"] 
                                   if call.get("function") and call["function"].get("name") and call["function"].get("arguments")]
+            
             return result
         except Exception as e:
             error_text = str(e)
@@ -584,7 +653,18 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
             
             if is_internal_call and getattr(self, '_last_tool_call_time', 0) > time.time() - 2:
                 intent_response = intent.IntentResponse(language=user_input.language)
-                intent_response.async_set_speech("已处理您的请求")
+                
+                if hasattr(self, '_last_error_message') and self._last_error_message:
+                    error_message = self._last_error_message
+                elif hasattr(self, '_last_tool_result') and self._last_tool_result:
+                    if isinstance(self._last_tool_result, dict):
+                        error_message = json.dumps(self._last_tool_result, ensure_ascii=False)
+                    else:
+                        error_message = str(self._last_tool_result)
+                else:
+                    error_message = "MatchFailedError: MatchFailedReason.AREA: 2"  
+                
+                intent_response.async_set_speech(error_message)
                 return conversation.ConversationResult(response=intent_response, conversation_id=user_input.conversation_id or ulid.ulid_now())
             
             self._last_tool_call_time = time.time()
@@ -636,7 +716,7 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                         api_key = self.entry.data[CONF_API_KEY]
                         base_payload = {
                             "model": options.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL),
-                            "max_tokens": min(options.get(CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS), 4096),
+                            "max_tokens": min(options.get(CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS), 8096),
                             "top_p": options.get(CONF_TOP_P, RECOMMENDED_TOP_P),
                             "temperature": options.get(CONF_TEMPERATURE, RECOMMENDED_TEMPERATURE),
                             "request_id": conversation_id,
@@ -648,15 +728,11 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                         }
                         
                         tool_choice_setting = options.get(CONF_TOOL_CHOICE, DEFAULT_TOOL_CHOICE)
-                        if tool_choice_setting == "force":
-                            base_payload["tool_choice"] = "required"
-                            base_payload["temperature"] = 0.2
-                            base_payload["top_p"] = 0.5
-                            base_payload["do_sample"] = False  
-                        elif tool_choice_setting == "none":
-                            base_payload["tool_choice"] = "none"
-                        else: 
-                            base_payload["tool_choice"] = "auto"
+                        
+                        base_payload["tool_choice"] = "required"
+                        base_payload["temperature"] = 0.1  
+                        base_payload["top_p"] = 0.1  
+                        base_payload["do_sample"] = False  
 
 
                         if tools:
@@ -798,10 +874,20 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                             for msg in history_messages
                         ])
                     
+                    
+                    media_player_prompt = ""
+                    if hasattr(self.hass, '_last_media_player') and self.hass._last_media_player.get('entity_id'):
+                        entity_id = self.hass._last_media_player.get('entity_id')
+                        state = self.hass.states.get(entity_id)
+                        if state:
+                            friendly_name = state.attributes.get('friendly_name', entity_id)
+                            media_player_prompt = f"\n当前活动的媒体播放器: {friendly_name} ({entity_id})"
+                    
                     combined_prompt = "\n".join([
                         llm.BASE_PROMPT,
                         options.get(CONF_PROMPT, llm.DEFAULT_INSTRUCTIONS_PROMPT),
                         history_prompt,
+                        media_player_prompt,  
                     ])
 
                     prompt_parts = [template.Template(combined_prompt, self.hass).async_render({
@@ -904,6 +990,9 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                         if tools:
                             current_payload["tools"] = tools
                             current_payload["tool_choice"] = "required"
+                            current_payload["temperature"] = 0.1  
+                            current_payload["top_p"] = 0.1  
+                            current_payload["do_sample"] = False  
 
                         final_content = await AIResponseStrategy.direct_stream(api_key, current_payload, options, chat_log, self.entity_id, self._transform_stream, self.llm_api, self._handle_tool_call)
                         
@@ -1011,43 +1100,43 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
                     prompt_parts.append({"type": "history_analysis", "content": history_text})
         except Exception: pass
 
-    async def _handle_tool_call(self, tool_input: llm.ToolInput, user_input: str) -> Dict[str, Any]:
+    async def _handle_tool_call(self, tool_input: llm.ToolInput, user_text):
         try:
+            
+            LOGGER.debug("处理工具调用: %s, 参数: %s", 
+                       tool_input.tool_name, 
+                       json.dumps(tool_input.tool_args, ensure_ascii=False))
+            
             if not self.llm_api or not hasattr(self.llm_api, "async_call_tool"):
-                return {"success": False, "message": "LLM API未初始化"}
+                error_msg = "LLM API未初始化"
+                self._last_error_message = error_msg
+                return {"success": False, "message": error_msg}
+            
             
             if isinstance(tool_input.tool_args, str):
-                try: tool_args_dict = json.loads(tool_input.tool_args)
-                except json.JSONDecodeError: tool_args_dict = {"text": tool_input.tool_args}
+                try: 
+                    tool_args_dict = json.loads(tool_input.tool_args)
+                except json.JSONDecodeError as json_err: 
+                    error_msg = str(json_err)
+                    self._last_error_message = error_msg
+                    tool_args_dict = {"text": tool_input.tool_args}
                 tool_input = llm.ToolInput(id=tool_input.id, tool_name=tool_input.tool_name, tool_args=tool_args_dict)
             
-            if "name" in tool_input.tool_args and isinstance(tool_input.tool_args["name"], list):
-                entity_names = tool_input.tool_args["name"]
-                if len(entity_names) > 1:
-                    async def process_entity(entity_name):
-                        single_args = dict(tool_input.tool_args)
-                        single_args["name"] = entity_name
-                        if "domain" in single_args and isinstance(single_args["domain"], list):
-                            single_args["domain"] = single_args["domain"][0]
-                        single_input = llm.ToolInput(
-                            id=f"{tool_input.id}_{entity_name}" if tool_input.id else None,
-                            tool_name=tool_input.tool_name,
-                            tool_args=single_args
-                        )
-                        try:
-                            result = await self.llm_api.async_call_tool(single_input)
-                            return {"entity": entity_name, "result": result, "success": True}
-                        except Exception as e:
-                            return {"entity": entity_name, "result": {"error": str(e)}, "success": False}
-                    
-                    tasks = [process_entity(entity_name) for entity_name in entity_names]
-                    results = await asyncio.gather(*tasks)
-                    return {"success": True, "results": results, "entities": entity_names}
-            
-            result = await self.llm_api.async_call_tool(tool_input)
-            return result if isinstance(result, dict) else {"success": True, "result": str(result)}
+            try:
+                
+                result = await self.llm_api.async_call_tool(tool_input)
+                return result if isinstance(result, dict) else {"success": True, "result": str(result)}
+            except Exception as e:
+                
+                error_msg = str(e)
+                self._last_error_message = error_msg
+                LOGGER.error("工具调用直接失败: %s", error_msg)
+                return {"success": False, "message": error_msg}
         except Exception as e:
-            return {"success": False, "message": f"执行错误: {str(e)}"}
+            
+            error_msg = str(e)
+            self._last_error_message = error_msg
+            return {"success": False, "message": error_msg}
 
     async def _fallback_to_hass_llm(self, user_input: conversation.ConversationInput, conversation_id: str) -> conversation.ConversationResult:
         try:
@@ -1104,54 +1193,78 @@ class ZhipuAIConversationEntity(conversation.ConversationEntity, conversation.Ab
         is_first = True
         collected_content = ""
         collected_tool_calls = []
-        tool_calls_completed = False
+        tool_call_fragments = {}  
         
         try:
             async for chunk in stream:
-                
                 chunk = chunk.get("data", chunk) if "data" in chunk else chunk
                 choice = chunk.get("choices", [{}])[0]
                 delta = choice.get("delta", {})
-                
                 
                 if is_first and "role" in delta:
                     yield {"role": delta["role"]}
                     is_first = False
                 
-                
                 if "content" in delta and delta["content"] is not None:
                     collected_content += delta["content"]
                     yield {"content": delta["content"]}
                 
-                
                 if "tool_calls" in delta and delta["tool_calls"]:
                     for tool_call in delta["tool_calls"]:
+                        call_id = tool_call.get("id")
+                        if not call_id:
+                            continue
                         
-                        if (tool_call.get("function", {}).get("name") and 
-                            tool_call.get("function", {}).get("arguments")):
-                            
-                            if tool_call not in collected_tool_calls:
-                                collected_tool_calls.append(tool_call)
+                        if call_id not in tool_call_fragments:
+                            tool_call_fragments[call_id] = {
+                                "id": call_id,
+                                "type": tool_call.get("type", "function"),
+                                "function": {
+                                    "name": tool_call.get("function", {}).get("name", ""),
+                                    "arguments": tool_call.get("function", {}).get("arguments", "")
+                                }
+                            }
+                        else:
+                            fragment = tool_call_fragments[call_id]
+                            if tool_call.get("function", {}).get("name"):
+                                fragment["function"]["name"] = tool_call["function"]["name"]
+                            if tool_call.get("function", {}).get("arguments"):
+                                fragment["function"]["arguments"] += tool_call["function"]["arguments"]
                         
-                            
-                            args = tool_call.get("function", {}).get("arguments", "").strip() 
-                            if args.endswith('}'):
-                                
-                                tool_calls_completed = True
-                
+                        try:
+                            fragment = tool_call_fragments[call_id]
+                            if fragment["function"]["name"] and fragment["function"]["arguments"]:
+                                args_str = fragment["function"]["arguments"].strip()
+                                if args_str.endswith("}"): 
+                                    try:
+                                        json.loads(args_str)  
+                                        
+                                        if not any(c.get("id") == call_id for c in collected_tool_calls):
+                                            collected_tool_calls.append(fragment.copy())
+                                    except json.JSONDecodeError:
+                                        pass  
+                        except Exception as e:
+                            LOGGER.debug("解析工具调用时出错: %s", str(e))
                 
                 finish_reason = choice.get("finish_reason")
                 if finish_reason:
-                    if collected_tool_calls and (finish_reason == "tool_calls" or tool_calls_completed):
+                    if collected_tool_calls:
+                        for call_id, fragment in tool_call_fragments.items():
+                            if not any(c.get("id") == call_id for c in collected_tool_calls):
+                                try:
+                                    args_str = fragment["function"]["arguments"].strip()
+                                    json.loads(args_str)  
+                                    collected_tool_calls.append(fragment.copy())
+                                except (json.JSONDecodeError, Exception):
+                                    pass  
+                                
                         yield {"collected_tool_calls": collected_tool_calls, "content": collected_content}
                         return
                     elif finish_reason in ["stop", "length"]:
-                        
                         break
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            
             if collected_tool_calls:
                 yield {"collected_tool_calls": collected_tool_calls, "content": collected_content, "error": str(e)}
             else:

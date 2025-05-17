@@ -44,6 +44,7 @@ class StreamingRequestHandler:
         if "request_id" not in payload:
             payload["request_id"] = f"req_{int(time.time() * 1000)}"
         
+        LOGGER.info("发送给AI的消息: %s", json.dumps(payload, ensure_ascii=False))
 
         for attempt in range(3):
             try:
